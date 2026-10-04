@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "roomwatch-perception"
+version = "0.1.0"
+description = "RoomWatch Perception Pipeline"
+requires-python = ">=3.8"
+
+[project.scripts]
+rw-semantic-construct = "roomwatch_perception.semantic_map_construction:main"
+rw-semantic-update = "roomwatch_perception.semantic_map_update:main"
