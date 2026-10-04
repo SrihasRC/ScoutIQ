@@ -77,8 +77,10 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
 
     # Resolve world path
+    world_full = os.path.join(pkg_world, 'worlds', 'small_house.sdf')
+    world_light = os.path.join(pkg_world, 'worlds', 'small_house_light.sdf')
     world_file = PythonExpression([
-        "('", world, "' if '", world, "' != '' else os.path.join('", pkg_world, "', 'worlds', 'small_house_light.sdf' if '", light, "' == 'true' else 'small_house.sdf'))"
+        "('", world, "' if '", world, "' != '' else ('", world_light, "' if '", light, "' == 'true' else '", world_full, "'))"
     ])
 
     # 1. Real Gazebo Simulation
