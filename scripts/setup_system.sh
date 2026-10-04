@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time system packages for roomwatch (Ubuntu 22.04, ROS 2 Humble, Gazebo Harmonic).
+# One-time system packages for roomwatch (Ubuntu 22.04, ROS 2 Humble, Gazebo Fortress).
 # Run with:  sudo bash scripts/setup_system.sh   (or just run it; it uses sudo itself)
 set -euo pipefail
 
@@ -32,14 +32,15 @@ $SUDO apt-get install -y \
   ros-humble-ros2-control ros-humble-ros2-controllers \
   ros-humble-controller-manager ros-humble-joint-trajectory-controller
 
-# Gazebo <-> ROS (already installed on this machine; kept for completeness)
+# Gazebo Fortress <-> ROS (apt ros_gz for Humble is built against Fortress, not Harmonic)
+$SUDO apt-get install -y ignition-fortress
 $SUDO apt-get install -y \
   ros-humble-ros-gz ros-humble-ros-gz-sim ros-humble-ros-gz-bridge ros-humble-ros-gz-image \
   ros-humble-cv-bridge python3-opencv python3-numpy python3-scipy python3-networkx \
   python3-shapely python3-matplotlib python3-yaml python3-lxml python3-transforms3d
 
-# Optional: Gazebo Harmonic variant of gz_ros2_control (may not exist for Humble; ignore failure)
-$SUDO apt-get install -y ros-humble-gz-ros2-control || \
-  echo "[info] ros-humble-gz-ros2-control unavailable -> will use native gz joint controllers"
+# Optional: ros2_control for Ignition Fortress (ignore failure)
+$SUDO apt-get install -y ros-humble-ign-ros2-control || \
+  echo "[info] ros-humble-ign-ros2-control unavailable -> will use native ign joint controllers"
 
 echo "[ok] system packages installed. Next: bash scripts/setup_venv.sh"

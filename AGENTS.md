@@ -1,6 +1,6 @@
 # AGENTS.md: rules for every coding agent on roomwatch
 
-roomwatch = native **ROS 2 Humble + Gazebo Harmonic** persistent semantic mapping for a mobile manipulator
+roomwatch = native **ROS 2 Humble + Gazebo Fortress (Ignition Gazebo 6)** persistent semantic mapping for a mobile manipulator
 (Fetch-style robot). No Docker, no ROS 1.
 
 ## Read first
@@ -19,7 +19,8 @@ roomwatch = native **ROS 2 Humble + Gazebo Harmonic** persistent semantic mappin
 - Work **only** in your work package's owned paths, in your own git worktree/branch (`scripts/new_worktree.sh`).
 - Never edit: `AGENTS.md`, `docs/CONTRACT.md`, root `scripts/`, `.gitignore` (main agent only).
 - Never merge into `main`; the main agent merges after the gate (build, tests, integration).
-- Unique `export ROS_DOMAIN_ID=<N>` and `export GZ_PARTITION=<wp-name>`; run Gazebo headless (`gz sim -s -r`) unless told otherwise.
+- Unique `export ROS_DOMAIN_ID=<N>` and `export IGN_PARTITION=<wp-name>`; run Gazebo headless (`ign gazebo -s -r --headless-rendering`) unless told otherwise.
+- **Simulator is Ignition Fortress, NOT Harmonic.** Apt `ros_gz_bridge` is linked to Fortress; Harmonic cannot talk to it. Use `ign gazebo`, message types `ignition.msgs.*`, SDF plugins `ignition-gazebo-*-system` / `ignition::gazebo::systems::*`, SDF version 1.8. Working example: `docs/spike/`.
 - No absolute `/home/...` paths in code; use `ament_index_python`, params, or env vars. Use `use_sim_time`.
 - Sensors use `SensorDataQoS`; maps use transient-local QoS.
 - Commit small and often: `<wp>: <message>`. Done = builds, tests pass, demo command works, STATUS row updated with evidence.

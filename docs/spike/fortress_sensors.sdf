@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<sdf version="1.8"><world name="spike">
+<plugin filename="ignition-gazebo-physics-system" name="ignition::gazebo::systems::Physics"/>
+<plugin filename="ignition-gazebo-sensors-system" name="ignition::gazebo::systems::Sensors"><render_engine>ogre2</render_engine></plugin>
+<plugin filename="ignition-gazebo-scene-broadcaster-system" name="ignition::gazebo::systems::SceneBroadcaster"/>
+<light type="directional" name="sun"><direction>-1 -1 -1</direction></light>
+<model name="ground"><static>true</static><link name="l"><collision name="c"><geometry><plane><normal>0 0 1</normal></plane></geometry></collision><visual name="v"><geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry></visual></link></model>
+<model name="cam"><static>true</static><pose>0 0 1 0 0 0</pose><link name="l"><sensor name="rgbd" type="rgbd_camera"><update_rate>10</update_rate><topic>rgbd</topic><camera><horizontal_fov>1.0</horizontal_fov><image><width>320</width><height>240</height></image><clip><near>0.1</near><far>10</far></clip></camera><always_on>1</always_on></sensor>
+<sensor name="lidar" type="gpu_lidar"><update_rate>10</update_rate><topic>scan</topic><lidar><scan><horizontal><samples>360</samples><min_angle>-3.14</min_angle><max_angle>3.14</max_angle></horizontal></scan><range><min>0.1</min><max>10</max></range></lidar><always_on>1</always_on></sensor></link></model>
+</world></sdf>

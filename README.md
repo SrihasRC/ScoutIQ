@@ -1,6 +1,6 @@
 # roomwatch
 
-Persistent semantic mapping of indoor spaces on **ROS 2 Humble + Gazebo Harmonic**, running natively
+Persistent semantic mapping of indoor spaces on **ROS 2 Humble + Gazebo Fortress**, running natively
 (no Docker). Stages: explore and map → plan a surveillance traversal → localize and build an
 open-vocabulary object graph → re-visit and update the graph. Perception runs on **CPU**.
 

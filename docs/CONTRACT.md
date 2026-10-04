@@ -3,9 +3,12 @@
 Only the main agent edits this file. WPs conform to it; request changes via the main agent.
 Derived from the original ROS 1 system. Items marked **TBD(spike)** are fixed after the Phase 0 simulator spike.
 
+## Simulator
+Ignition Gazebo 6 (Fortress) + apt `ros_gz_*` (bridge types `ignition.msgs.*`). World is 3D; SLAM/Nav2 use a 2D lidar occupancy grid; semantic graph nodes are 3D-derived map poses. Verified spike: `docs/spike/`.
+
 ## Frames (TF tree)
 `map → odom → base_link → {laser_link, torso_lift_link → … → gripper_link, head_pan_link → head_tilt_link → head_camera_link → head_camera_rgb_optical_frame, head_camera_depth_optical_frame}`
-- `map→odom`: slam_toolbox (mapping) or nav2_amcl (localization). `odom→base_link`: Gazebo DiffDrive.
+- `map→odom`: slam_toolbox (mapping) or nav2_amcl (localization). `odom→base_link`: Ignition DiffDrive.
 - All nodes `use_sim_time:=true` in simulation.
 
 ## Topics
@@ -13,12 +16,12 @@ Derived from the original ROS 1 system. Items marked **TBD(spike)** are fixed af
 |---|---|---|---|
 | `/clock` | rosgraph_msgs/Clock | gz bridge | default |
 | `/cmd_vel` | geometry_msgs/Twist | nav2 / teleop | reliable |
-| `/odom` | nav_msgs/Odometry | gz DiffDrive (bridge) | reliable |
-| `/scan` | sensor_msgs/LaserScan (frame `laser_link`) | gz gpu_lidar (bridge) | SensorData |
-| `/head_camera/rgb/image_raw` | sensor_msgs/Image (rgb8/bgr8) | gz rgbd_camera (bridge) | SensorData |
+| `/odom` | nav_msgs/Odometry | ign DiffDrive (bridge) | reliable |
+| `/scan` | sensor_msgs/LaserScan (frame `laser_link`) | ign gpu_lidar (bridge) | SensorData |
+| `/head_camera/rgb/image_raw` | sensor_msgs/Image (rgb8/bgr8) | ign rgbd_camera (bridge) | SensorData |
 | `/head_camera/rgb/camera_info` | sensor_msgs/CameraInfo | bridge | SensorData |
 | `/head_camera/depth_registered/image_raw` | sensor_msgs/Image (**32FC1, metres**) | bridge | SensorData |
-| `/joint_states` | sensor_msgs/JointState | gz JointStatePublisher (bridge) | reliable |
+| `/joint_states` | sensor_msgs/JointState | ign JointStatePublisher (bridge) | reliable |
 | `/map` | nav_msgs/OccupancyGrid | slam_toolbox / map_server | transient_local |
 | `/initialpose` | geometry_msgs/PoseWithCovarianceStamped | initial-pose pub | reliable |
 | `/yes_no` | std_msgs/Int32 (pause=1) | user | reliable |
@@ -29,7 +32,7 @@ Derived from the original ROS 1 system. Items marked **TBD(spike)** are fixed af
 
 ## Actions
 - `navigate_to_pose` (nav2_msgs/NavigateToPose), replaces `move_base`. Goal frame `map`.
-- Head/arm/torso: **TBD(spike)**, either `/head_controller/follow_joint_trajectory` (ros2_control) or per-joint position topics `/<joint>/cmd_pos` (Float64) via gz.
+- Head/arm/torso: **TBD(spike)**, either `/head_controller/follow_joint_trajectory` (ros2_control) or per-joint position topics `/<joint>/cmd_pos` (Float64) via ign JointPositionController (ign_ros2_control is an apt option).
 
 ## Joints (from Fetch)
 `torso_lift_joint, head_pan_joint, head_tilt_joint, shoulder_pan_joint, shoulder_lift_joint, upperarm_roll_joint, elbow_flex_joint, forearm_roll_joint, wrist_flex_joint, wrist_roll_joint, l_gripper_finger_joint, r_gripper_finger_joint, l_wheel_joint, r_wheel_joint`
@@ -47,4 +50,4 @@ Perception lives in `perception/` (venv, not colcon) and exposes console entry p
 `rw-semantic-construct` / `rw-semantic-update`.
 
 ## Environment per agent
-`ROS_DOMAIN_ID=<WP number>`, `GZ_PARTITION=<wp-name>`, headless sim by default.
+`ROS_DOMAIN_ID=<WP number>`, `IGN_PARTITION=<wp-name>`, headless sim by default.

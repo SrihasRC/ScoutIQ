@@ -9,5 +9,5 @@ if [ -z "$BASE" ]; then git -C "$ROOT" rev-parse -q --verify v0-scaffold >/dev/n
 DEST="$ROOT/../roomwatch-wt/$NAME"
 git -C "$ROOT" worktree add "$DEST" -b "$NAME" "$BASE"
 echo "Worktree: $(cd "$DEST" && pwd)  (branch $NAME from $BASE)"
-echo "Agent env hints:  export ROS_DOMAIN_ID=<unique 1-100>  GZ_PARTITION=$NAME"
+echo "Agent env hints:  export ROS_DOMAIN_ID=<unique 1-100>  IGN_PARTITION=$NAME"
 echo "Venv: symlink or reuse $ROOT/.venv  ->  source $ROOT/.venv/bin/activate"

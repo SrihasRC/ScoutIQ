@@ -11,9 +11,10 @@ set +u
 echo "== System =="
 chk "ROS 2 humble"            '[ "$ROS_DISTRO" = humble ]'
 chk "colcon"                  'command -v colcon'
-chk "gz sim 8 (Harmonic)"     'gz sim --version | grep -q "version 8"'
+chk "ign gazebo 6 (Fortress)"  'ign gazebo --versions | grep -q "^6\."'
 chk "ros_gz_sim"              'ros2 pkg prefix ros_gz_sim'
 chk "ros_gz_bridge"           'ros2 pkg prefix ros_gz_bridge'
+chk "bridge links Fortress"    'ldd /opt/ros/humble/lib/ros_gz_bridge/parameter_bridge | grep -q ignition-transport11'
 chk "nav2_bringup"            'ros2 pkg prefix nav2_bringup'
 chk "slam_toolbox"            'ros2 pkg prefix slam_toolbox'
 chk "robot_state_publisher"   'ros2 pkg prefix robot_state_publisher'
