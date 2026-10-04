@@ -36,7 +36,9 @@ Ignition Gazebo 6 (Fortress) + apt `ros_gz_*` (bridge types `ignition.msgs.*`). 
 
 ## Joints (from Fetch)
 `torso_lift_joint, head_pan_joint, head_tilt_joint, shoulder_pan_joint, shoulder_lift_joint, upperarm_roll_joint, elbow_flex_joint, forearm_roll_joint, wrist_flex_joint, wrist_roll_joint, l_gripper_finger_joint, r_gripper_finger_joint, l_wheel_joint, r_wheel_joint`
-- Tucked-arm pose and head pose: copy the numbers from the original `tuck_arm.py` / `set_head.py`.
+- Tucked pose (joint order: torso_lift, shoulder_pan, shoulder_lift, upperarm_roll, elbow_flex, forearm_roll, wrist_flex, wrist_roll) = `[0.05, 1.32, 1.40, -0.2, 1.72, 0.0, 1.66, 0.0]` (from original `tuck_arm.py`).
+- Head: look at point `(0.75, 0, 0.75)` in `base_link` (from original `set_head.py`) -> compute pan/tilt from it.
+- Spawn pose of robot in world: x=0, y=0, yaw=0 (original README). Map origin convention: map frame = world frame at spawn.
 
 ## Files / formats (must match the originals byte-for-structure)
 - Map: `map.pgm` + `map.yaml` (`image`, `resolution 0.05`, `origin`, thresholds). Saved to `data/<run>/map.*` (not `$HOME`).
@@ -48,6 +50,9 @@ Ignition Gazebo 6 (Fortress) + apt `ros_gz_*` (bridge types `ignition.msgs.*`). 
 `roomwatch_bringup, roomwatch_world, roomwatch_description, roomwatch_gz, roomwatch_nav, roomwatch_explore, roomwatch_core`
 Perception lives in `perception/` (venv, not colcon) and exposes console entry points
 `rw-semantic-construct` / `rw-semantic-update`.
+
+## Mock robot (no simulator needed)
+`python tests/mock_robot/mock_robot.py` fakes TF, /odom, /scan, /map, RGB-D + camera_info, /joint_states, /cmd_vel and a `navigate_to_pose` action server in a 10x8 m room. Verify with `tests/mock_robot/smoke_test.py`. Use it for WP4-WP7 until the real sim is merged.
 
 ## Environment per agent
 `ROS_DOMAIN_ID=<WP number>`, `IGN_PARTITION=<wp-name>`, headless sim by default.
