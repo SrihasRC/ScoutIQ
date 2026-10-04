@@ -10,4 +10,10 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/tuck_arm
+  scripts/set_head
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

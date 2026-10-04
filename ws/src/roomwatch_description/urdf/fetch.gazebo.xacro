@@ -201,4 +201,98 @@
     </plugin>
   </gazebo>
 
+  <!-- Joint Position Controllers for Arm, Head, and Torso -->
+  <gazebo>
+    <plugin filename="ignition-gazebo-joint-position-controller-system" name="ignition::gazebo::systems::JointPositionController">
+      <joint_name>torso_lift_joint</joint_name>
+      <topic>/torso_lift_joint/cmd_pos</topic>
+      <p_gain>20000.0</p_gain>
+      <i_gain>100.0</i_gain>
+      <d_gain>1000.0</d_gain>
+      <cmd_max>450.0</cmd_max>
+      <cmd_min>-450.0</cmd_min>
+    </plugin>
+    <plugin filename="ignition-gazebo-joint-position-controller-system" name="ignition::gazebo::systems::JointPositionController">
+      <joint_name>shoulder_pan_joint</joint_name>
+      <topic>/shoulder_pan_joint/cmd_pos</topic>
+      <p_gain>200.0</p_gain>
+      <i_gain>1.0</i_gain>
+      <d_gain>10.0</d_gain>
+      <cmd_max>33.8</cmd_max>
+      <cmd_min>-33.8</cmd_min>
+    </plugin>
+    <plugin filename="ignition-gazebo-joint-position-controller-system" name="ignition::gazebo::systems::JointPositionController">
+      <joint_name>shoulder_lift_joint</joint_name>
+      <topic>/shoulder_lift_joint/cmd_pos</topic>
+      <p_gain>1000.0</p_gain>
+      <i_gain>10.0</i_gain>
+      <d_gain>50.0</d_gain>
+      <cmd_max>131.0</cmd_max>
+      <cmd_min>-131.0</cmd_min>
+    </plugin>
+    <plugin filename="ignition-gazebo-joint-position-controller-system" name="ignition::gazebo::systems::JointPositionController">
+      <joint_name>upperarm_roll_joint</joint_name>
+      <topic>/upperarm_roll_joint/cmd_pos</topic>
+      <p_gain>200.0</p_gain>
+      <i_gain>1.0</i_gain>
+      <d_gain>10.0</d_gain>
+      <cmd_max>76.0</cmd_max>
+      <cmd_min>-76.0</cmd_min>
+    </plugin>
+    <plugin filename="ignition-gazebo-joint-position-controller-system" name="ignition::gazebo::systems::JointPositionController">
+      <joint_name>elbow_flex_joint</joint_name>
+      <topic>/elbow_flex_joint/cmd_pos</topic>
+      <p_gain>500.0</p_gain>
+      <i_gain>5.0</i_gain>
+      <d_gain>25.0</d_gain>
+      <cmd_max>66.0</cmd_max>
+      <cmd_min>-66.0</cmd_min>
+    </plugin>
+    <plugin filename="ignition-gazebo-joint-position-controller-system" name="ignition::gazebo::systems::JointPositionController">
+      <joint_name>forearm_roll_joint</joint_name>
+      <topic>/forearm_roll_joint/cmd_pos</topic>
+      <p_gain>100.0</p_gain>
+      <i_gain>0.5</i_gain>
+      <d_gain>5.0</d_gain>
+      <cmd_max>29.0</cmd_max>
+      <cmd_min>-29.0</cmd_min>
+    </plugin>
+    <plugin filename="ignition-gazebo-joint-position-controller-system" name="ignition::gazebo::systems::JointPositionController">
+      <joint_name>wrist_flex_joint</joint_name>
+      <topic>/wrist_flex_joint/cmd_pos</topic>
+      <p_gain>100.0</p_gain>
+      <i_gain>0.5</i_gain>
+      <d_gain>5.0</d_gain>
+      <cmd_max>25.0</cmd_max>
+      <cmd_min>-25.0</cmd_min>
+    </plugin>
+    <plugin filename="ignition-gazebo-joint-position-controller-system" name="ignition::gazebo::systems::JointPositionController">
+      <joint_name>wrist_roll_joint</joint_name>
+      <topic>/wrist_roll_joint/cmd_pos</topic>
+      <p_gain>50.0</p_gain>
+      <i_gain>0.1</i_gain>
+      <d_gain>2.0</d_gain>
+      <cmd_max>7.0</cmd_max>
+      <cmd_min>-7.0</cmd_min>
+    </plugin>
+    <plugin filename="ignition-gazebo-joint-position-controller-system" name="ignition::gazebo::systems::JointPositionController">
+      <joint_name>head_pan_joint</joint_name>
+      <topic>/head_pan_joint/cmd_pos</topic>
+      <p_gain>20.0</p_gain>
+      <i_gain>0.1</i_gain>
+      <d_gain>2.0</d_gain>
+      <cmd_max>10.0</cmd_max>
+      <cmd_min>-10.0</cmd_min>
+    </plugin>
+    <plugin filename="ignition-gazebo-joint-position-controller-system" name="ignition::gazebo::systems::JointPositionController">
+      <joint_name>head_tilt_joint</joint_name>
+      <topic>/head_tilt_joint/cmd_pos</topic>
+      <p_gain>30.0</p_gain>
+      <i_gain>0.5</i_gain>
+      <d_gain>3.0</d_gain>
+      <cmd_max>10.0</cmd_max>
+      <cmd_min>-10.0</cmd_min>
+    </plugin>
+  </gazebo>
+
 </robot>
