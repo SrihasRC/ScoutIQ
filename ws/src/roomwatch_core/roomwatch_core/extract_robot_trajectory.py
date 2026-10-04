@@ -18,7 +18,13 @@ class ExtractTrajectory:
 
     def __init__(self, root_dir: str) -> None:
         self.root_dir = root_dir
-        self.pose_dir = join(root_dir, "pose")
+        if os.path.basename(os.path.normpath(root_dir)) == "pose" and os.path.isdir(root_dir):
+            self.pose_dir = root_dir
+        elif os.path.isdir(join(root_dir, "pose")):
+            self.pose_dir = join(root_dir, "pose")
+        else:
+            self.pose_dir = root_dir
+
         if not os.path.exists(self.pose_dir):
             raise FileNotFoundError(f"Pose directory does not exist: {self.pose_dir}")
 

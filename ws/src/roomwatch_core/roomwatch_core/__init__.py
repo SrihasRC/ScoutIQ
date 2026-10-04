@@ -1,5 +1,24 @@
 """roomwatch_core - Core utilities, trajectory processing, and navigation for roomwatch."""
 
+import sys
+import os
+
+# Prioritize virtual environment packages over ~/.local (which contains NumPy 2.x)
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+_venv_site = os.path.join(_repo_root, ".venv", "lib", "python3.10", "site-packages")
+if os.path.isdir(_venv_site) and _venv_site not in sys.path:
+    sys.path.insert(0, _venv_site)
+
+# NumPy compatibility for legacy transforms3d / tf_transformations if NumPy 2 is loaded
+try:
+    import numpy as np
+    if not hasattr(np, "float"):
+        np.float = float
+    if not hasattr(np, "maximum_sctype"):
+        np.maximum_sctype = lambda t: np.float64
+except ImportError:
+    pass
+
 from roomwatch_core.ros_utils import (
     ros_qt_to_rt,
     ros_pose_to_rt,
