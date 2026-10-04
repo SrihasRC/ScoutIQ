@@ -68,16 +68,27 @@ def generate_launch_description():
     z = LaunchConfiguration('z')
     yaw = LaunchConfiguration('yaw')
 
-    # Ensure Ignition Fortress resolves model://roomwatch_description/meshes/...
+    pkg_roomwatch_world = FindPackageShare('roomwatch_world')
+    world_models_path = PathJoinSubstitution([pkg_roomwatch_world, 'models'])
+
+    # Ensure Ignition Fortress resolves model://roomwatch_description/meshes/... and model://aws_...
     # Parent of roomwatch_description package share is <prefix>/share
     parent_share_path = PathJoinSubstitution([pkg_roomwatch_desc, '..'])
     set_ign_resource_path = AppendEnvironmentVariable(
         name='IGN_GAZEBO_RESOURCE_PATH',
         value=parent_share_path,
     )
+    set_ign_world_path = AppendEnvironmentVariable(
+        name='IGN_GAZEBO_RESOURCE_PATH',
+        value=world_models_path,
+    )
     set_gz_resource_path = AppendEnvironmentVariable(
         name='GZ_SIM_RESOURCE_PATH',
         value=parent_share_path,
+    )
+    set_gz_world_path = AppendEnvironmentVariable(
+        name='GZ_SIM_RESOURCE_PATH',
+        value=world_models_path,
     )
 
     robot_description = Command([
@@ -157,7 +168,9 @@ def generate_launch_description():
         z_arg,
         yaw_arg,
         set_ign_resource_path,
+        set_ign_world_path,
         set_gz_resource_path,
+        set_gz_world_path,
         robot_state_publisher,
         ign_gazebo_headless,
         ign_gazebo_gui,

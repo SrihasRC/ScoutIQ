@@ -47,6 +47,13 @@ if [ -d "${ROOT_DIR}/.venv" ]; then
     source "${ROOT_DIR}/.venv/bin/activate"
 fi
 
+# Ensure Gazebo Fortress resolves both world models and robot meshes
+WORLD_MODELS="${ROOT_DIR}/ws/install/roomwatch_world/share/roomwatch_world/models"
+DESC_SHARE="${ROOT_DIR}/ws/install/roomwatch_description/share"
+export IGN_GAZEBO_RESOURCE_PATH="${WORLD_MODELS}:${DESC_SHARE}:${IGN_GAZEBO_RESOURCE_PATH:-}"
+export GZ_SIM_RESOURCE_PATH="${IGN_GAZEBO_RESOURCE_PATH}"
+export SDF_PATH="${IGN_GAZEBO_RESOURCE_PATH}"
+
 # Ensure run directory
 if [ -z "${RUN_DIR}" ]; then
     TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
