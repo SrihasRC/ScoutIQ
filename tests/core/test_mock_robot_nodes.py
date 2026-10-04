@@ -18,13 +18,18 @@ from roomwatch_core.publish_traj import PosePublisher
 from roomwatch_core.navigate import Navigate
 
 
+MOCK_ROBOT_SCRIPT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "mock_robot", "mock_robot.py")
+)
+
+
 @pytest.fixture(scope="module")
 def mock_robot_proc():
     """Starts mock_robot in a background process with ROS_DOMAIN_ID=16."""
     env = os.environ.copy()
     env["ROS_DOMAIN_ID"] = "16"
     proc = subprocess.Popen(
-        [sys.executable, "tests/mock_robot/mock_robot.py"],
+        [sys.executable, MOCK_ROBOT_SCRIPT],
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
