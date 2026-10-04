@@ -8,6 +8,6 @@
 | WP3 joints | wp3-joints | | todo | |
 | WP4 nav | wp4-nav | | todo | |
 | WP5 explore | wp5-explore | | todo | |
-| WP6 core | wp6-core | | todo | |
+| WP6 core | wp6-core | wp6 agent | done | colcon build OK; 20/20 parity & mock tests passed in tests/core; mock_robot integration verified (domain 16) |
 | WP7 perception | wp7-perception | | todo | |
 | WP8 bringup+docs | wp8-bringup | | todo | |
