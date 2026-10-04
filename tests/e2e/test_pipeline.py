@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 End-to-End Pipeline Integration Test.
-Runs the complete RoomWatch pipeline in mock mode:
+Runs the complete ScoutIQ pipeline in mock mode:
   1. Spawns mock robot (ROS 2 Humble topics & actions)
   2. Autonomous exploration + pose recording -> map.pgm, map.yaml, pose/%06d_pose.npz
   3. Trajectory extraction + TSP ordering -> robot_trajectory.json, surveillance_traj.npz
@@ -26,7 +26,7 @@ def run_pipeline_test():
     os.environ["ROS_DOMAIN_ID"] = test_domain
     os.environ["PYTHONNOUSERSITE"] = "1"
     print("=" * 65)
-    print(f"RoomWatch E2E Pipeline Integration Test (ROS_DOMAIN_ID={test_domain})")
+    print(f"ScoutIQ E2E Pipeline Integration Test (ROS_DOMAIN_ID={test_domain})")
     print("=" * 65)
 
     test_dir = tempfile.mkdtemp(prefix="rw_e2e_")
@@ -71,7 +71,7 @@ def run_pipeline_test():
         print("[2/5] Running exploration & pose recording...")
         explore_proc = subprocess.Popen(
             [
-                "ros2", "run", "roomwatch_explore", "explore", "--ros-args",
+                "ros2", "run", "scoutiq_explore", "explore", "--ros-args",
                 "-p", "costmap_topic:=map",
                 "-p", "planner_frequency:=2.0",
                 "-p", "progress_timeout:=4.0",
@@ -86,7 +86,7 @@ def run_pipeline_test():
         procs.append(explore_proc)
 
         save_proc = subprocess.Popen(
-            ["ros2", "run", "roomwatch_core", "save_data", "0.2", test_dir],
+            ["ros2", "run", "scoutiq_core", "save_data", "0.2", test_dir],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -126,7 +126,7 @@ def run_pipeline_test():
         surv_npz = os.path.join(test_dir, "surveillance_traj.npz")
 
         res1 = subprocess.run(
-            [sys.executable, "-m", "roomwatch_core.extract_robot_trajectory", pose_dir, traj_json],
+            [sys.executable, "-m", "scoutiq_core.extract_robot_trajectory", pose_dir, traj_json],
             capture_output=True, text=True, check=True
         )
         assert os.path.exists(traj_json), "robot_trajectory.json not created"
@@ -135,7 +135,7 @@ def run_pipeline_test():
         assert len(t_data) > 0, "robot_trajectory.json is empty"
 
         res2 = subprocess.run(
-            [sys.executable, "-m", "roomwatch_core.tsp_surveillance_trajectory", traj_json, surv_npz],
+            [sys.executable, "-m", "scoutiq_core.tsp_surveillance_trajectory", traj_json, surv_npz],
             capture_output=True, text=True, check=True
         )
         assert os.path.exists(surv_npz), "surveillance_traj.npz not created"

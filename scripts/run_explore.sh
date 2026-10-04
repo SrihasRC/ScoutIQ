@@ -13,4 +13,4 @@ source /opt/ros/humble/setup.bash
 [ -d ".venv" ] && source .venv/bin/activate
 
 echo "Starting Exploration & Mapping into: ${RUN_DIR}"
-ros2 launch roomwatch_bringup explore.launch.py run_dir:="${RUN_DIR}"
+ros2 launch scoutiq_bringup explore.launch.py run_dir:="${RUN_DIR}"

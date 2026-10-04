@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration test for roomwatch_explore against tests/mock_robot/mock_robot.py.
+"""Integration test for scoutiq_explore against tests/mock_robot/mock_robot.py.
 
 Verifies:
 1. explore node starts and receives /map from mock_robot.py.
@@ -46,9 +46,9 @@ def main():
         # Give mock_robot 2 seconds to initialize publishers and TF
         time.sleep(2.0)
 
-        print("[TEST] Starting roomwatch_explore node...")
+        print("[TEST] Starting scoutiq_explore node...")
         explore_cmd = [
-            'ros2', 'run', 'roomwatch_explore', 'explore',
+            'ros2', 'run', 'scoutiq_explore', 'explore',
             '--ros-args',
             '-p', f'run_dir:={test_run_dir}',
             '-p', 'planner_frequency:=2.0',

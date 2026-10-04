@@ -1,11 +1,11 @@
-"""Unit tests for roomwatch_core.ros_utils."""
+"""Unit tests for scoutiq_core.ros_utils."""
 
 import math
 import numpy as np
 import pytest
 from geometry_msgs.msg import Pose, Point, Quaternion
 
-from roomwatch_core.ros_utils import (
+from scoutiq_core.ros_utils import (
     ros_qt_to_rt,
     ros_pose_to_rt,
     rt_to_ros_pose,

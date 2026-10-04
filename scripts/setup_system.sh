@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time system packages for roomwatch (Ubuntu 22.04, ROS 2 Humble, Gazebo Fortress).
+# One-time system packages for ScoutIQ (Ubuntu 22.04, ROS 2 Humble, Gazebo Fortress).
 # Run with:  sudo bash scripts/setup_system.sh   (or just run it; it uses sudo itself)
 set -euo pipefail
 

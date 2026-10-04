@@ -16,4 +16,4 @@ source /opt/ros/humble/setup.bash
 [ -d ".venv" ] && source .venv/bin/activate
 
 echo "Starting Surveillance Traversal & Semantic Construction on: ${RUN_DIR}"
-ros2 launch roomwatch_bringup traverse.launch.py run_dir:="${RUN_DIR}" fake_detector:="${FAKE_ARG}"
+ros2 launch scoutiq_bringup traverse.launch.py run_dir:="${RUN_DIR}" fake_detector:="${FAKE_ARG}"

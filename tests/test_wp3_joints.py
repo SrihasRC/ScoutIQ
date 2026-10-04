@@ -3,8 +3,8 @@
 Test script for WP3: Arm tucking and head look-at joint controllers.
 Verifies CONTRACT requirements:
 - /joint_states contains torso, head, and arm joints
-- ros2 run roomwatch_gz set_head orientates head to target
-- ros2 run roomwatch_gz tuck_arm tucks arm into target configuration
+- ros2 run scoutiq_gz set_head orientates head to target
+- ros2 run scoutiq_gz tuck_arm tucks arm into target configuration
 """
 
 import os
@@ -88,7 +88,7 @@ def main():
     # Phase 2: Test set_head CLI
     print("[2/4] Running set_head CLI (tilt=0.394, pan=0.0)...")
     res = subprocess.run(
-        ["ros2", "run", "roomwatch_gz", "set_head", "--tilt", "0.394", "--pan", "0.0", "--timeout", "10.0"],
+        ["ros2", "run", "scoutiq_gz", "set_head", "--tilt", "0.394", "--pan", "0.0", "--timeout", "10.0"],
         capture_output=True,
         text=True,
     )
@@ -110,7 +110,7 @@ def main():
     # Phase 3: Test tuck_arm CLI
     print("[3/4] Running tuck_arm CLI...")
     res = subprocess.run(
-        ["ros2", "run", "roomwatch_gz", "tuck_arm", "--timeout", "15.0", "--tolerance", "0.15"],
+        ["ros2", "run", "scoutiq_gz", "tuck_arm", "--timeout", "15.0", "--tolerance", "0.15"],
         capture_output=True,
         text=True,
     )

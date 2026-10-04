@@ -1,4 +1,4 @@
-"""Integration tests running roomwatch_core nodes against mock_robot (ROS_DOMAIN_ID=16)."""
+"""Integration tests running scoutiq_core nodes against mock_robot (ROS_DOMAIN_ID=16)."""
 
 import os
 import subprocess
@@ -12,10 +12,10 @@ from rclpy.node import Node
 from std_msgs.msg import Int32
 from visualization_msgs.msg import MarkerArray
 
-from roomwatch_core.listener import ImageListener
-from roomwatch_core.save_data import SaveData
-from roomwatch_core.publish_traj import PosePublisher
-from roomwatch_core.navigate import Navigate
+from scoutiq_core.listener import ImageListener
+from scoutiq_core.save_data import SaveData
+from scoutiq_core.publish_traj import PosePublisher
+from scoutiq_core.navigate import Navigate
 
 
 MOCK_ROBOT_SCRIPT = os.path.abspath(

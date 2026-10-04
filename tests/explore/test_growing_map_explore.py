@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration test for roomwatch_explore with a dynamically growing map.
+"""Integration test for scoutiq_explore with a dynamically growing map.
 
 Verifies:
 1. When map has unexplored areas, frontiers are found.
@@ -199,9 +199,9 @@ def main():
     try:
         time.sleep(2.0)
 
-        print("[TEST] Starting roomwatch_explore on growing map...")
+        print("[TEST] Starting scoutiq_explore on growing map...")
         explore_cmd = [
-            'ros2', 'run', 'roomwatch_explore', 'explore',
+            'ros2', 'run', 'scoutiq_explore', 'explore',
             '--ros-args',
             '-p', f'run_dir:={test_run_dir}',
             '-p', 'planner_frequency:=2.0',

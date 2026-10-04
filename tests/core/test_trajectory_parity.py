@@ -5,13 +5,13 @@ import os
 import numpy as np
 import pytest
 
-from roomwatch_core.utils import read_graph_json
-from roomwatch_core.tsp_surveillance_trajectory import (
+from scoutiq_core.utils import read_graph_json
+from scoutiq_core.tsp_surveillance_trajectory import (
     preprocess_trajectory_graph,
     tsp_greedy_solution,
     compute_surveillance_trajectory,
 )
-from roomwatch_core.extract_robot_trajectory import ExtractTrajectory
+from scoutiq_core.extract_robot_trajectory import ExtractTrajectory
 
 REF_DIR = "/home/srihasrc/Music/AutoX-SemMap-main/scripts"
 RUN_DIR = "/home/srihasrc/Music/AutoX-SemMap-main/fetch_ws/src/fetch_gazebo/fetch_gazebo/scripts/2024-10-02_01-37-08"

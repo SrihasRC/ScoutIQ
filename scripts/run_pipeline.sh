@@ -50,8 +50,8 @@ if [ -d "${ROOT_DIR}/.venv" ]; then
 fi
 
 # Ensure Gazebo Fortress resolves both world models and robot meshes
-WORLD_MODELS="${ROOT_DIR}/ws/install/roomwatch_world/share/roomwatch_world/models"
-DESC_SHARE="${ROOT_DIR}/ws/install/roomwatch_description/share"
+WORLD_MODELS="${ROOT_DIR}/ws/install/scoutiq_world/share/scoutiq_world/models"
+DESC_SHARE="${ROOT_DIR}/ws/install/scoutiq_description/share"
 export IGN_GAZEBO_RESOURCE_PATH="${WORLD_MODELS}:${DESC_SHARE}:${IGN_GAZEBO_RESOURCE_PATH:-}"
 export GZ_SIM_RESOURCE_PATH="${IGN_GAZEBO_RESOURCE_PATH}"
 export SDF_PATH="${IGN_GAZEBO_RESOURCE_PATH}"
@@ -64,7 +64,7 @@ fi
 mkdir -p "${RUN_DIR}/pose"
 
 echo "============================================================"
-echo "roomwatch Autonomous Surveillance & Semantic Mapping Pipeline"
+echo "ScoutIQ Autonomous Surveillance & Semantic Mapping Pipeline"
 echo "Run Directory: ${RUN_DIR}"
 echo "Mode: $( [ "$USE_MOCK" = true ] && echo "MOCK ROBOT" || echo "FULL GAZEBO SIM" )"
 echo "============================================================"
@@ -83,7 +83,7 @@ cleanup() {
     pkill -f "async_slam_toolbox_node" 2>/dev/null || true
     pkill -f "nav2" 2>/dev/null || true
     pkill -f "rviz2" 2>/dev/null || true
-    pkill -f "roomwatch_explore" 2>/dev/null || true
+    pkill -f "scoutiq_explore" 2>/dev/null || true
     pkill -f "save_data" 2>/dev/null || true
     pkill -f "navigate" 2>/dev/null || true
     pkill -f "rw-semantic" 2>/dev/null || true
@@ -95,7 +95,7 @@ echo "[1/4] Starting robot simulation..."
 HEADLESS_FLAG="true"
 [ "$GUI" = true ] && HEADLESS_FLAG="false"
 
-ros2 launch roomwatch_bringup sim.launch.py \
+ros2 launch scoutiq_bringup sim.launch.py \
     mock:="${USE_MOCK}" \
     light:="${LIGHT_WORLD}" \
     headless:="${HEADLESS_FLAG}" \
@@ -120,7 +120,7 @@ echo "[2/4] Stage 1: Autonomous Exploration & SLAM..."
 # For mock mode, mock_robot already provides map and handles nav goals
 if [ "$USE_MOCK" = true ]; then
     echo "  Running explore node and save_data against mock robot..."
-    ros2 run roomwatch_explore explore --ros-args \
+    ros2 run scoutiq_explore explore --ros-args \
         -p costmap_topic:=map \
         -p planner_frequency:=1.0 \
         -p progress_timeout:=5.0 \
@@ -130,7 +130,7 @@ if [ "$USE_MOCK" = true ]; then
         -p run_dir:="${RUN_DIR}" &
     PIDS+=($!)
 
-    ros2 run roomwatch_core save_data 0.5 "${RUN_DIR}" &
+    ros2 run scoutiq_core save_data 0.5 "${RUN_DIR}" &
     PIDS+=($!)
 
     # Wait for map to be written and at least 5 poses to be recorded
@@ -140,7 +140,7 @@ if [ "$USE_MOCK" = true ]; then
         WAIT_COUNT=$((WAIT_COUNT+1))
     done
 else
-    ros2 launch roomwatch_bringup explore.launch.py run_dir:="${RUN_DIR}" &
+    ros2 launch scoutiq_bringup explore.launch.py run_dir:="${RUN_DIR}" &
     EXPLORE_LAUNCH_PID=$!
     PIDS+=($EXPLORE_LAUNCH_PID)
 
@@ -155,18 +155,18 @@ fi
 # Ensure map exists (if not generated in time, synthesize minimal map fallback for test integrity)
 if [ ! -f "${RUN_DIR}/map.yaml" ]; then
     echo "  Generating fallback map for pipeline continuation..."
-    ros2 run roomwatch_nav save_map "${RUN_DIR}" || true
+    ros2 run scoutiq_nav save_map "${RUN_DIR}" || true
 fi
 
 # Stop exploration and pose recorder before next phase (keep SLAM and Nav2 active)
-pkill -f "roomwatch_explore/explore" 2>/dev/null || true
+pkill -f "scoutiq_explore/explore" 2>/dev/null || true
 pkill -f "save_data" 2>/dev/null || true
 sleep 2
 
 # 3. Stage 2: Trajectory Post-processing
 echo "[3/4] Stage 2: Processing Trajectory (Extract -> TSP)..."
-python3 -m roomwatch_core.extract_robot_trajectory "${RUN_DIR}/pose" "${RUN_DIR}/robot_trajectory.json"
-python3 -m roomwatch_core.tsp_surveillance_trajectory "${RUN_DIR}/robot_trajectory.json" "${RUN_DIR}/surveillance_traj.npz"
+python3 -m scoutiq_core.extract_robot_trajectory "${RUN_DIR}/pose" "${RUN_DIR}/robot_trajectory.json"
+python3 -m scoutiq_core.tsp_surveillance_trajectory "${RUN_DIR}/robot_trajectory.json" "${RUN_DIR}/surveillance_traj.npz"
 
 # 4. Stage 3 & 4: Traverse, Semantic Construction, and Update
 echo "[4/4] Stage 3 & 4: Semantic Construct & Update..."
@@ -178,20 +178,20 @@ SIM_TIME_ARG=""
 
 # Run semantic construct
 echo "  Constructing initial 3D semantic graph (graph.json)..."
-rw-semantic-construct --output "${RUN_DIR}/graph.json" --max-iterations 3 ${DETECTOR_ARG} ${SIM_TIME_ARG} &
+scoutiq-semantic-construct --output "${RUN_DIR}/graph.json" --max-iterations 3 ${DETECTOR_ARG} ${SIM_TIME_ARG} &
 CONSTRUCT_PID=$!
 PIDS+=($CONSTRUCT_PID)
 
 # Run navigation along surveillance trajectory
-ros2 run roomwatch_core navigate "${RUN_DIR}/surveillance_traj.npz" ${SIM_TIME_ARG} || true
+ros2 run scoutiq_core navigate "${RUN_DIR}/surveillance_traj.npz" ${SIM_TIME_ARG} || true
 wait $CONSTRUCT_PID 2>/dev/null || true
 
 # Run semantic update
 echo "  Updating 3D semantic graph (graph_updated.json)..."
-rw-semantic-update --input "${RUN_DIR}/graph.json" --output "${RUN_DIR}/graph_updated.json" --max-iterations 3 ${DETECTOR_ARG} ${SIM_TIME_ARG} &
+scoutiq-semantic-update --input "${RUN_DIR}/graph.json" --output "${RUN_DIR}/graph_updated.json" --max-iterations 3 ${DETECTOR_ARG} ${SIM_TIME_ARG} &
 UPDATE_PID=$!
 PIDS+=($UPDATE_PID)
-ros2 run roomwatch_core navigate "${RUN_DIR}/surveillance_traj.npz" ${SIM_TIME_ARG} || true
+ros2 run scoutiq_core navigate "${RUN_DIR}/surveillance_traj.npz" ${SIM_TIME_ARG} || true
 wait $UPDATE_PID 2>/dev/null || true
 
 echo "============================================================"

@@ -1,11 +1,11 @@
-"""Unit tests for roomwatch_core.utils."""
+"""Unit tests for scoutiq_core.utils."""
 
 import os
 import numpy as np
 import pytest
 import networkx as nx
 
-from roomwatch_core.utils import (
+from scoutiq_core.utils import (
     compute_xyz,
     pose_to_map_pixel,
     pose_along_line,
