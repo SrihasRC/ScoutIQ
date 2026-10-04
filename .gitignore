@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+# colcon
+ws/build/
+ws/install/
+ws/log/
+build/
+install/
+log/
+# runtime artifacts
+data/*
+!data/.gitkeep
+perception/ckpts/
+*.pth
+*.pt
+*.egg-info/
+.pytest_cache/
+.vscode/
+.idea/
