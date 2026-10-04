@@ -364,7 +364,7 @@ def main(args: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Update 3D semantic graph from robot camera stream.")
     parser.add_argument("--input", "-i", default="graph.json", help="Path to input graph.json")
     parser.add_argument("--output", "-o", default="graph_updated.json", help="Path to output graph_updated.json")
-    parser.add_argument("--text-prompt", "-p", default="table . door . chair .", help="Text prompt for detector")
+    parser.add_argument("--text-prompt", "--prompt", default="table . door . chair .", help="Text prompt for detector")
     parser.add_argument("--box-threshold", type=float, default=0.35, help="Bounding box confidence threshold")
     parser.add_argument("--text-threshold", type=float, default=0.35, help="Text matching threshold")
     parser.add_argument("--rate-limit", type=float, default=2.0, help="Min seconds between frame processing")

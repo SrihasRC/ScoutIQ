@@ -35,6 +35,8 @@ class Navigate(Node):
         if not rclpy.ok():
             rclpy.init()
         super().__init__(node_name)
+        if not self.has_parameter("use_sim_time"):
+            self.declare_parameter("use_sim_time", False)
 
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, "navigate_to_pose")
         self.tf_buffer = Buffer()
@@ -140,7 +142,7 @@ class Navigate(Node):
     def send_goal_and_wait(
         self,
         goal: NavigateToPose.Goal,
-        timeout_sec: Optional[float] = 60.0,
+        timeout_sec: Optional[float] = 25.0,
     ) -> Optional[Any]:
         """Sends goal to NavigateToPose and waits for result synchronously."""
         if not self.nav_to_pose_client.wait_for_server(timeout_sec=5.0):
@@ -271,8 +273,10 @@ def main(args=None):
 
     nav = None
     traj_path = "surveillance_traj.npz"
-    if len(sys.argv) > 1:
-        traj_path = sys.argv[1]
+    for arg in sys.argv[1:]:
+        if not arg.startswith("-") and ":=" not in arg:
+            traj_path = arg
+            break
 
     try:
         nav = Navigate()

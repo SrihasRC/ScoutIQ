@@ -79,6 +79,12 @@ cleanup() {
     pkill -f "robot_state_publisher" 2>/dev/null || true
     pkill -f "mock_robot.py" 2>/dev/null || true
     pkill -f "async_slam_toolbox_node" 2>/dev/null || true
+    pkill -f "nav2" 2>/dev/null || true
+    pkill -f "rviz2" 2>/dev/null || true
+    pkill -f "roomwatch_explore" 2>/dev/null || true
+    pkill -f "save_data" 2>/dev/null || true
+    pkill -f "navigate" 2>/dev/null || true
+    pkill -f "rw-semantic" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -93,7 +99,19 @@ ros2 launch roomwatch_bringup sim.launch.py \
     headless:="${HEADLESS_FLAG}" \
     rviz:="${GUI}" &
 PIDS+=($!)
-sleep 6
+
+if [ "$USE_MOCK" = true ]; then
+    sleep 4
+else
+    echo "  Waiting for robot simulation and /odom to be ready..."
+    WAIT_SIM=0
+    while ! ros2 topic echo /odom --once >/dev/null 2>&1 && [ $WAIT_SIM -lt 30 ]; do
+        sleep 1
+        WAIT_SIM=$((WAIT_SIM+1))
+    done
+    echo "  Robot simulation ready! (waited ${WAIT_SIM}s)"
+    sleep 2
+fi
 
 # 2. Stage 1: Exploration & Mapping
 echo "[2/4] Stage 1: Autonomous Exploration & SLAM..."
@@ -121,8 +139,15 @@ if [ "$USE_MOCK" = true ]; then
     done
 else
     ros2 launch roomwatch_bringup explore.launch.py run_dir:="${RUN_DIR}" &
-    PIDS+=($!)
-    sleep 30
+    EXPLORE_LAUNCH_PID=$!
+    PIDS+=($EXPLORE_LAUNCH_PID)
+
+    # Wait for map to be written and at least 5 poses to be recorded
+    WAIT_COUNT=0
+    while { [ ! -f "${RUN_DIR}/map.yaml" ] || [ $(ls -1 "${RUN_DIR}/pose/"*.npz 2>/dev/null | wc -l) -lt 5 ]; } && [ $WAIT_COUNT -lt ${TIMEOUT_EXPLORE} ]; do
+        sleep 2
+        WAIT_COUNT=$((WAIT_COUNT+2))
+    done
 fi
 
 # Ensure map exists (if not generated in time, synthesize minimal map fallback for test integrity)
@@ -131,8 +156,8 @@ if [ ! -f "${RUN_DIR}/map.yaml" ]; then
     ros2 run roomwatch_nav save_map "${RUN_DIR}" || true
 fi
 
-# Stop exploration and pose recorder before next phase
-pkill -f "explore" 2>/dev/null || true
+# Stop exploration and pose recorder before next phase (keep SLAM and Nav2 active)
+pkill -f "roomwatch_explore/explore" 2>/dev/null || true
 pkill -f "save_data" 2>/dev/null || true
 sleep 2
 
@@ -146,22 +171,25 @@ echo "[4/4] Stage 3 & 4: Semantic Construct & Update..."
 DETECTOR_ARG=""
 [ "$FAKE_DETECTOR" = true ] && DETECTOR_ARG="--fake-detector"
 
+SIM_TIME_ARG=""
+[ "$USE_MOCK" = false ] && SIM_TIME_ARG="--ros-args -p use_sim_time:=true"
+
 # Run semantic construct
 echo "  Constructing initial 3D semantic graph (graph.json)..."
-rw-semantic-construct --output "${RUN_DIR}/graph.json" --max-iterations 3 ${DETECTOR_ARG} &
+rw-semantic-construct --output "${RUN_DIR}/graph.json" --max-iterations 3 ${DETECTOR_ARG} ${SIM_TIME_ARG} &
 CONSTRUCT_PID=$!
 PIDS+=($CONSTRUCT_PID)
 
 # Run navigation along surveillance trajectory
-ros2 run roomwatch_core navigate "${RUN_DIR}/surveillance_traj.npz" || true
+ros2 run roomwatch_core navigate "${RUN_DIR}/surveillance_traj.npz" ${SIM_TIME_ARG} || true
 wait $CONSTRUCT_PID 2>/dev/null || true
 
 # Run semantic update
 echo "  Updating 3D semantic graph (graph_updated.json)..."
-rw-semantic-update --input "${RUN_DIR}/graph.json" --output "${RUN_DIR}/graph_updated.json" --max-iterations 3 ${DETECTOR_ARG} &
+rw-semantic-update --input "${RUN_DIR}/graph.json" --output "${RUN_DIR}/graph_updated.json" --max-iterations 3 ${DETECTOR_ARG} ${SIM_TIME_ARG} &
 UPDATE_PID=$!
 PIDS+=($UPDATE_PID)
-ros2 run roomwatch_core navigate "${RUN_DIR}/surveillance_traj.npz" || true
+ros2 run roomwatch_core navigate "${RUN_DIR}/surveillance_traj.npz" ${SIM_TIME_ARG} || true
 wait $UPDATE_PID 2>/dev/null || true
 
 echo "============================================================"
