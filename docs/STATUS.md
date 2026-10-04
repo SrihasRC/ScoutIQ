@@ -9,5 +9,5 @@
 | WP4 nav | wp4-nav | wp4-agent | done | colcon build clean; 5 pytest tests pass; mapping.launch.py (slam_toolbox async + Nav2) & localize.launch.py active against mock_robot; pub_initial_pose & save_map verified |
 | WP5 explore | wp5-explore | | todo | |
 | WP6 core | wp6-core | | todo | |
-| WP7 perception | wp7-perception | | todo | |
+| WP7 perception | wp7-perception | wp7-agent | done | Ported robokit to standalone roomwatch-perception; CPU-only GroundingDINO+MobileSAM; CLIs rw-semantic-construct & rw-semantic-update verified against mock_robot (ROS_DOMAIN_ID=17); 11/11 pytest passed; CPU demo 5.56s/frame. |
 | WP8 bringup+docs | wp8-bringup | | todo | |
