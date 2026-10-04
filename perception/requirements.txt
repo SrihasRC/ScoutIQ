@@ -1,6 +1,7 @@
 # Installed into .venv by scripts/setup_venv.sh (torch/numpy/groundingdino/mobile_sam handled there).
 # OpenCV, scipy, networkx, shapely, matplotlib, yaml come from system apt via --system-site-packages.
 pillow
+transforms3d>=0.4.2  # apt 0.3.1 breaks on numpy>=1.24; needed by tf_transformations
 tqdm
 ftfy
 regex
