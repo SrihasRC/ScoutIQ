@@ -4,7 +4,7 @@
 |---|---|---|---|---|
 | WP0 scaffold | main | main agent | done | Base setup, uv venv, Ignition Fortress spike, mock_robot, v0-scaffold |
 | WP1 world | wp1-world | WP1 agent | done | Ported small_house.sdf (87 models, RTF 1.0) & small_house_light.sdf (34 models, RTF 1.0) to Ignition Fortress SDF 1.8 with physics, sensors/ogre2, scene-broadcaster, user-commands; colcon build passes; world.launch.py tested headless |
-| WP2 robot+sensors | wp2-robot | | in progress | |
+| WP2 robot+sensors | wp2-robot | WP2 agent | done | colcon build clean; robot.launch.py spawns fetch in Fortress; /clock, /cmd_vel (drives >0.7m), /odom, /scan (360 samples, 10Hz, laser_link), /head_camera/rgb/image_raw (640x480, rgb8), /head_camera/depth_registered/image_raw (640x480, 32FC1 m), /head_camera/rgb/camera_info, /joint_states (15 joints), TF (odom->base_link->laser_link/cam); tests/test_wp2_robot.py passes |
 | WP3 joints | wp3-joints | | todo | |
 | WP4 nav | wp4-nav | wp4-agent | done | colcon build clean; 5 pytest tests pass; mapping.launch.py (slam_toolbox async + Nav2) & localize.launch.py active against mock_robot; pub_initial_pose & save_map verified |
 | WP5 explore | wp5-explore | | in progress | |
