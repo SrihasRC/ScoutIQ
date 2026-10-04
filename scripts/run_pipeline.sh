@@ -7,18 +7,19 @@ LIGHT_WORLD=false
 GUI=false
 RUN_DIR=""
 FAKE_DETECTOR=false
-TIMEOUT_EXPLORE=60
+TIMEOUT_EXPLORE=120
 TIMEOUT_NAV=45
 
 usage() {
     echo "Usage: $0 [options]"
     echo "Options:"
-    echo "  --mock            Run fast mock robot instead of full Gazebo"
-    echo "  --light           Use lightweight house world for sim"
-    echo "  --gui             Open Gazebo GUI and RViz2"
-    echo "  --run-dir DIR     Specify data output directory"
-    echo "  --fake-detector   Use fast mock detector for perception tests"
-    echo "  --help, -h        Show this message"
+    echo "  --mock                 Run fast mock robot instead of full Gazebo"
+    echo "  --light                Use lightweight house world for sim"
+    echo "  --gui                  Open Gazebo GUI and RViz2"
+    echo "  --run-dir DIR          Specify data output directory"
+    echo "  --fake-detector        Use fast mock detector for perception tests"
+    echo "  --timeout-explore SEC  Exploration time limit in seconds (default: 120)"
+    echo "  --help, -h             Show this message"
     exit 1
 }
 
@@ -29,6 +30,7 @@ while [[ $# -gt 0 ]]; do
         --gui) GUI=true; shift ;;
         --run-dir) RUN_DIR="$2"; shift 2 ;;
         --fake-detector) FAKE_DETECTOR=true; shift ;;
+        --timeout-explore) TIMEOUT_EXPLORE="$2"; shift 2 ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
