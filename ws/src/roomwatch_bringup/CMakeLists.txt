@@ -11,6 +11,7 @@ install(DIRECTORY
 
 install(PROGRAMS
   scripts/run_pipeline
+  scripts/mock_robot
   DESTINATION lib/${PROJECT_NAME}
 )
 

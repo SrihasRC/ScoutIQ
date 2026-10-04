@@ -106,9 +106,9 @@ if [ "$USE_MOCK" = true ]; then
     ros2 run roomwatch_core save_data 0.5 "${RUN_DIR}" &
     PIDS+=($!)
 
-    # Wait for map to be written or timeout
+    # Wait for map to be written and at least 5 poses to be recorded
     WAIT_COUNT=0
-    while [ ! -f "${RUN_DIR}/map.yaml" ] && [ $WAIT_COUNT -lt 30 ]; do
+    while { [ ! -f "${RUN_DIR}/map.yaml" ] || [ $(ls -1 "${RUN_DIR}/pose/"*.npz 2>/dev/null | wc -l) -lt 5 ]; } && [ $WAIT_COUNT -lt 25 ]; do
         sleep 1
         WAIT_COUNT=$((WAIT_COUNT+1))
     done
@@ -142,18 +142,20 @@ DETECTOR_ARG=""
 # Run semantic construct
 echo "  Constructing initial 3D semantic graph (graph.json)..."
 rw-semantic-construct --output "${RUN_DIR}/graph.json" --max-iterations 3 ${DETECTOR_ARG} &
-PIDS+=($!)
+CONSTRUCT_PID=$!
+PIDS+=($CONSTRUCT_PID)
 
 # Run navigation along surveillance trajectory
 ros2 run roomwatch_core navigate "${RUN_DIR}/surveillance_traj.npz" || true
-wait
+wait $CONSTRUCT_PID 2>/dev/null || true
 
 # Run semantic update
 echo "  Updating 3D semantic graph (graph_updated.json)..."
 rw-semantic-update --input "${RUN_DIR}/graph.json" --output "${RUN_DIR}/graph_updated.json" --max-iterations 3 ${DETECTOR_ARG} &
-PIDS+=($!)
+UPDATE_PID=$!
+PIDS+=($UPDATE_PID)
 ros2 run roomwatch_core navigate "${RUN_DIR}/surveillance_traj.npz" || true
-wait
+wait $UPDATE_PID 2>/dev/null || true
 
 echo "============================================================"
 echo "Artifact Verification:"

@@ -120,13 +120,10 @@ def generate_launch_description():
     delayed_head = TimerAction(period=8.0, actions=[set_head_cmd])
 
     # 2. Mock robot (for fast testing without GPU/sim overhead)
-    # Find repository root from pkg_bringup
-    # pkg_bringup is typically <ws>/install/roomwatch_bringup/share/roomwatch_bringup
-    repo_root = os.path.abspath(os.path.join(pkg_bringup, '..', '..', '..', '..'))
-    mock_robot_script = os.path.join(repo_root, 'tests', 'mock_robot', 'mock_robot.py')
-
-    mock_robot_node = ExecuteProcess(
-        cmd=['python3', mock_robot_script],
+    mock_robot_node = Node(
+        package='roomwatch_bringup',
+        executable='mock_robot',
+        name='mock_robot',
         output='screen',
         condition=IfCondition(mock),
     )
