@@ -61,6 +61,11 @@ private:
   geometry_msgs::msg::Point prev_goal_;
   double prev_distance_{0.0};
   rclcpp::Time last_progress_;
+  rclcpp::Time start_time_;
+  int consecutive_empty_frontiers_{0};
+  int blacklisted_cycles_{0};
+  double min_candidate_distance_{0.35};
+  geometry_msgs::msg::Point goal_start_robot_pos_;
   size_t last_markers_count_{0};
   bool is_exploring_{false};
   bool goal_in_flight_{false};

@@ -167,7 +167,10 @@ class Navigate(Node):
             res = future.result()
             result_holder["result"] = res.result
             result_holder["status"] = res.status
-            self.get_logger().info(f"Navigation completed with status: {res.status}")
+            if res.status == 4:
+                self.get_logger().info(f"Navigation completed successfully (status: {res.status})")
+            else:
+                self.get_logger().warn(f"Navigation finished with non-success status: {res.status}")
             event.set()
 
         # If running with spin thread:
@@ -179,6 +182,8 @@ class Navigate(Node):
                 self.get_logger().warn("Navigation timed out waiting for action result.")
                 if result_holder["goal_handle"] is not None:
                     result_holder["goal_handle"].cancel_goal_async()
+                return None
+            if result_holder["status"] != 4:
                 return None
             return result_holder["result"]
         else:

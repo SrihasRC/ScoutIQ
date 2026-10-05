@@ -63,6 +63,9 @@ if [ -z "${RUN_DIR}" ]; then
 fi
 mkdir -p "${RUN_DIR}/pose"
 
+# Automatically save all stdout and stderr to terminal.log in run directory
+exec > >(tee -a "${RUN_DIR}/terminal.log") 2>&1
+
 echo "============================================================"
 echo "ScoutIQ Autonomous Surveillance & Semantic Mapping Pipeline"
 echo "Run Directory: ${RUN_DIR}"
@@ -168,6 +171,10 @@ echo "[3/4] Stage 2: Processing Trajectory (Extract -> TSP)..."
 python3 -m scoutiq_core.extract_robot_trajectory "${RUN_DIR}/pose" "${RUN_DIR}/robot_trajectory.json"
 python3 -m scoutiq_core.tsp_surveillance_trajectory "${RUN_DIR}/robot_trajectory.json" "${RUN_DIR}/surveillance_traj.npz"
 
+# Generate visual map images (clean map.png and map_trajectory.png)
+echo "  Generating 2D map and trajectory visualizations..."
+"${VENV_DIR}/bin/python3" "${WS_DIR}/src/scoutiq_core/scoutiq_core/visualize_map.py" "${RUN_DIR}" || true
+
 # 4. Stage 3 & 4: Traverse, Semantic Construction, and Update
 echo "[4/4] Stage 3 & 4: Semantic Construct & Update..."
 DETECTOR_ARG=""
@@ -194,11 +201,17 @@ PIDS+=($UPDATE_PID)
 ros2 run scoutiq_core navigate "${RUN_DIR}/surveillance_traj.npz" ${SIM_TIME_ARG} || true
 wait $UPDATE_PID 2>/dev/null || true
 
+# Generate final semantic map overlay
+echo "  Generating final semantic object map overlay..."
+"${VENV_DIR}/bin/python3" "${WS_DIR}/src/scoutiq_core/scoutiq_core/visualize_map.py" "${RUN_DIR}" || true
+
 echo "============================================================"
 echo "Artifact Verification:"
 ARTIFACTS=(
     "map.pgm"
     "map.yaml"
+    "map.png"
+    "map_trajectory.png"
     "robot_trajectory.json"
     "surveillance_traj.npz"
     "graph.json"
@@ -219,6 +232,9 @@ done
 
 POSE_COUNT=$(ls -1 "${RUN_DIR}/pose/"*.npz 2>/dev/null | wc -l)
 echo "  [OK] Recorded ${POSE_COUNT} pose files in ${RUN_DIR}/pose/"
+
+SEGMENTED_COUNT=$(ls -1 "${RUN_DIR}/segmented/"*.png 2>/dev/null | wc -l)
+echo "  [OK] Saved ${SEGMENTED_COUNT} segmented detection images in ${RUN_DIR}/segmented/"
 
 if [ "$ALL_PASSED" = true ]; then
     echo "SUCCESS: Full pipeline completed and all CONTRACT artifacts verified!"

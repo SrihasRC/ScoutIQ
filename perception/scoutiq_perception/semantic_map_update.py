@@ -1,6 +1,7 @@
 """Semantic map update node (CLI: rw-semantic-update)."""
 
 import argparse
+import os
 import sys
 import threading
 import time
@@ -311,6 +312,18 @@ class SemanticMapUpdateNode(Node):
         rgb_msg.header.stamp = rgb_frame_stamp
         rgb_msg.header.frame_id = rgb_frame_id
         self.image_pub.publish(rgb_msg)
+
+        # Save updated segmented detection image to disk for inspection
+        try:
+            out_dir = os.path.dirname(os.path.abspath(self.output_file))
+            seg_dir = os.path.join(out_dir, "segmented")
+            os.makedirs(seg_dir, exist_ok=True)
+            detected_names = "_".join(sorted(list(set(phrases))))
+            img_filename = f"update_{self.iter_count:03d}_{detected_names}.png"
+            bbox_annotated_pil.save(os.path.join(seg_dir, img_filename))
+            self.get_logger().info(f"Saved segmented image to {os.path.join(seg_dir, img_filename)}")
+        except Exception as e:
+            self.get_logger().warn(f"Failed to save segmented image: {e}")
 
         # 9. Publish markers and save updated graph
         self.publish_graph_to_rviz()

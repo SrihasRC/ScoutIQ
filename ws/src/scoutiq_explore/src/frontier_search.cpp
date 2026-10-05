@@ -220,6 +220,28 @@ Frontier FrontierSearch::buildNewFrontier(
 
   output.centroid.x /= output.size;
   output.centroid.y /= output.size;
+
+  // Find the point on the frontier closest to the centroid
+  double best_dist_to_centroid = std::numeric_limits<double>::infinity();
+  geometry_msgs::msg::Point best_pt = output.initial;
+  for (const auto & pt : output.points) {
+    double d = std::hypot(pt.x - output.centroid.x, pt.y - output.centroid.y);
+    if (d < best_dist_to_centroid) {
+      best_dist_to_centroid = d;
+      best_pt = pt;
+    }
+  }
+
+  // Pull target slightly (0.25 m) towards reference (robot position) into known free space
+  double dx = reference_x - best_pt.x;
+  double dy = reference_y - best_pt.y;
+  double len = std::hypot(dx, dy);
+  if (len > 0.35) {
+    best_pt.x += (dx / len) * 0.25;
+    best_pt.y += (dy / len) * 0.25;
+  }
+  output.middle = best_pt;
+
   return output;
 }
 

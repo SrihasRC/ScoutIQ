@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <sstream>
 
+#include "nav2_costmap_2d/cost_values.hpp"
 #include "nav2_map_server/map_io.hpp"
 #include "scoutiq_explore/distance.hpp"
 
@@ -103,7 +104,9 @@ void Explore::start()
 {
   if (!is_exploring_) {
     is_exploring_ = true;
+    start_time_ = now();
     last_progress_ = now();
+    consecutive_empty_frontiers_ = 0;
     auto period = std::chrono::duration<double>(1.0 / std::max(planner_frequency_, 0.01));
     exploring_timer_ = create_wall_timer(period, [this]() { makePlan(); });
     RCLCPP_INFO(get_logger(), "Exploration timer started.");
@@ -122,6 +125,9 @@ void Explore::stop()
       current_goal_handle_ = nullptr;
     }
     goal_in_flight_ = false;
+    if (save_map_) {
+      saveMap();
+    }
     RCLCPP_INFO(get_logger(), "Exploration stopped.");
   }
 }
@@ -234,6 +240,15 @@ void Explore::makePlan()
     return;
   }
 
+  // Warm-up check: wait for SLAM to settle and publish initial scan
+  if ((now() - start_time_).seconds() < 3.0) {
+    RCLCPP_INFO_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "Waiting for SLAM map and sensors to initialize (%.1f s elapsed)...",
+      (now() - start_time_).seconds());
+    return;
+  }
+
   if (!costmap_client_->hasMap()) {
     RCLCPP_INFO_THROTTLE(
       get_logger(), *get_clock(), 5000,
@@ -257,28 +272,86 @@ void Explore::makePlan()
     return;
   }
 
-  // Find all frontiers across whole map, sorted by cost
-  auto frontiers = search_.searchFrom(pose.position);
+  // If we already have an active goal being navigated by Nav2:
+  if (current_goal_handle_ != nullptr) {
+    double current_dist_to_goal = euclideanDistance(pose.position, prev_goal_);
+    if (current_dist_to_goal < prev_distance_ - 0.05) {
+      last_progress_ = now();
+      prev_distance_ = current_dist_to_goal;
+    }
 
-  // Exploration termination condition
+    if ((now() - last_progress_).seconds() > progress_timeout_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Progress timeout (%.1f s) exceeded for goal (%.2f, %.2f). Adding to blacklist.",
+        progress_timeout_, prev_goal_.x, prev_goal_.y);
+      frontier_blacklist_.push_back(prev_goal_);
+      nav_client_->async_cancel_goal(current_goal_handle_);
+      current_goal_handle_ = nullptr;
+      prev_goal_.x = std::numeric_limits<double>::infinity();
+      prev_goal_.y = std::numeric_limits<double>::infinity();
+      last_progress_ = now();
+    } else {
+      // Robot is actively executing path towards prev_goal_. Let it drive smoothly!
+      return;
+    }
+  }
+
+  // Find all raw frontiers across whole map, sorted by cost
+  auto all_frontiers = search_.searchFrom(pose.position);
+
+  // Filter out frontiers too close to the robot (< min_candidate_distance_)
+  // or positioned inside high costmap inflation (tight crevices / narrow gaps behind furniture)
+  auto * costmap = costmap_client_->getCostmap();
+  std::vector<Frontier> frontiers;
+  for (const auto & f : all_frontiers) {
+    if (euclideanDistance(pose.position, f.middle) < min_candidate_distance_) {
+      continue;
+    }
+    if (costmap != nullptr) {
+      unsigned int mx = 0;
+      unsigned int my = 0;
+      if (costmap->worldToMap(f.middle.x, f.middle.y, mx, my)) {
+        unsigned char c = costmap->getCost(mx, my);
+        // Skip frontiers with cost >= 180 (close to obstacle, < ~0.35m clearance) to prevent wedging
+        if (c >= 180 && c != nav2_costmap_2d::NO_INFORMATION) {
+          continue;
+        }
+      }
+    }
+    frontiers.push_back(f);
+  }
+
+  // Exploration termination condition:
+  // Terminate ONLY if no frontiers remain AND sufficient time has elapsed (> 45s)
+  // AND consecutive cycles confirm zero frontiers across the map.
   if (frontiers.size() < min_global_frontiers_) {
-    RCLCPP_INFO(
-      get_logger(),
-      "Exploration complete: remaining frontiers (%zu) < min_global_frontiers (%.1f)",
-      frontiers.size(), min_global_frontiers_);
+    consecutive_empty_frontiers_++;
+    if (consecutive_empty_frontiers_ >= 15 && (now() - start_time_).seconds() > 45.0) {
+      RCLCPP_INFO(
+        get_logger(),
+        "Exploration complete: remaining frontiers (%zu) < min_global_frontiers (%.1f) over %d cycles. Stopping.",
+        frontiers.size(), min_global_frontiers_, consecutive_empty_frontiers_);
 
-    std_msgs::msg::Bool term_msg;
-    term_msg.data = true;
-    termination_publisher_->publish(term_msg);
-    contract_termination_publisher_->publish(term_msg);
+      std_msgs::msg::Bool term_msg;
+      term_msg.data = true;
+      termination_publisher_->publish(term_msg);
+      contract_termination_publisher_->publish(term_msg);
 
-    stop();
+      stop();
 
-    if (save_map_) {
-      saveMap();
+      if (save_map_) {
+        saveMap();
+      }
+    } else {
+      RCLCPP_INFO_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "Low or no frontiers detected (%zu); waiting for map updates (cycle %d/10)...",
+        frontiers.size(), consecutive_empty_frontiers_);
     }
     return;
   }
+  consecutive_empty_frontiers_ = 0;
 
   // Dynamic window filtering:
   // 1. Filter frontiers within local_frontier_filter_radius
@@ -328,52 +401,32 @@ void Explore::makePlan()
   }
 
   if (frontier_it == filtered_frontiers.end() || frontier_it == frontiers.end()) {
-    RCLCPP_INFO(get_logger(), "All available frontiers are blacklisted. Stopping exploration.");
-    std_msgs::msg::Bool term_msg;
-    term_msg.data = true;
-    termination_publisher_->publish(term_msg);
-    contract_termination_publisher_->publish(term_msg);
-
-    stop();
-
-    if (save_map_) {
-      saveMap();
-    }
-    return;
-  }
-
-  geometry_msgs::msg::Point target_position = frontier_it->middle;
-
-  bool same_goal = (prev_goal_.x != std::numeric_limits<double>::infinity() &&
-                    euclideanDistance(prev_goal_, target_position) < 0.3);
-
-  // If we already have an active goal and target has not substantially changed, monitor progress
-  if (current_goal_handle_ != nullptr && same_goal) {
-    if (prev_distance_ > frontier_it->min_distance + 0.05) {
-      last_progress_ = now();
-      prev_distance_ = frontier_it->min_distance;
-    }
-
-    if ((now() - last_progress_).seconds() > progress_timeout_) {
+    blacklisted_cycles_++;
+    if (blacklisted_cycles_ >= 5) {
       RCLCPP_WARN(
         get_logger(),
-        "Progress timeout (%.1f s) exceeded for goal (%.2f, %.2f). Adding to blacklist.",
-        progress_timeout_, target_position.x, target_position.y);
-      frontier_blacklist_.push_back(target_position);
-      nav_client_->async_cancel_goal(current_goal_handle_);
-      current_goal_handle_ = nullptr;
-      prev_goal_.x = std::numeric_limits<double>::infinity();
-      prev_goal_.y = std::numeric_limits<double>::infinity();
+        "All available frontiers (%zu) have remained blacklisted for %d cycles. Clearing blacklist to retry.",
+        frontiers.size(), blacklisted_cycles_);
+      frontier_blacklist_.clear();
+      blacklisted_cycles_ = 0;
+    } else {
+      RCLCPP_INFO_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "All current frontiers (%zu) are temporarily blacklisted; waiting for map update (cycle %d/5)...",
+        frontiers.size(), blacklisted_cycles_);
     }
     return;
   }
+  blacklisted_cycles_ = 0;
+
+  geometry_msgs::msg::Point target_position = frontier_it->middle;
 
   if (goal_in_flight_) {
     return;
   }
 
   prev_goal_ = target_position;
-  prev_distance_ = frontier_it->min_distance;
+  prev_distance_ = euclideanDistance(pose.position, target_position);
   last_progress_ = now();
 
   // Dispatch goal to NavigateToPose action server
@@ -381,7 +434,13 @@ void Explore::makePlan()
   goal_msg.pose.header.frame_id = costmap_client_->getGlobalFrameID();
   goal_msg.pose.header.stamp = now();
   goal_msg.pose.pose.position = target_position;
-  goal_msg.pose.pose.orientation.w = 1.0;
+
+  double dx = target_position.x - pose.position.x;
+  double dy = target_position.y - pose.position.y;
+  double yaw = std::atan2(dy, dx);
+  goal_msg.pose.pose.orientation.z = std::sin(yaw / 2.0);
+  goal_msg.pose.pose.orientation.w = std::cos(yaw / 2.0);
+  goal_start_robot_pos_ = pose.position;
 
   auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
 
@@ -411,8 +470,8 @@ void Explore::makePlan()
     };
 
   RCLCPP_INFO(
-    get_logger(), "Sending NavigateToPose goal to (%.2f, %.2f)",
-    target_position.x, target_position.y);
+    get_logger(), "Sending NavigateToPose goal to (%.2f, %.2f) yaw=%.2f rad",
+    target_position.x, target_position.y, yaw);
   goal_in_flight_ = true;
   nav_client_->async_send_goal(goal_msg, send_goal_options);
 }
@@ -431,11 +490,21 @@ void Explore::reachedGoal(
       frontier_goal.x, frontier_goal.y);
     frontier_blacklist_.push_back(frontier_goal);
   } else if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+    geometry_msgs::msg::Pose current_pose;
+    double dist_moved = 1.0;
+    if (costmap_client_->getRobotPose(current_pose)) {
+      dist_moved = euclideanDistance(goal_start_robot_pos_, current_pose.position);
+    }
     RCLCPP_INFO(
       get_logger(),
-      "NavigateToPose goal (%.2f, %.2f) SUCCEEDED.",
-      frontier_goal.x, frontier_goal.y);
-    frontier_blacklist_.push_back(frontier_goal);
+      "NavigateToPose goal (%.2f, %.2f) SUCCEEDED (dist moved: %.2f m).",
+      frontier_goal.x, frontier_goal.y, dist_moved);
+    if (dist_moved >= 0.15) {
+      frontier_blacklist_.push_back(frontier_goal);
+      if (save_map_) {
+        saveMap();
+      }
+    }
   } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
     RCLCPP_INFO(
       get_logger(),

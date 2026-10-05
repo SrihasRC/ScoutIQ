@@ -26,6 +26,7 @@ setup(
             "publish_traj = scoutiq_core.publish_traj:main",
             "extract_robot_trajectory = scoutiq_core.extract_robot_trajectory:main",
             "tsp_surveillance_trajectory = scoutiq_core.tsp_surveillance_trajectory:main",
+            "visualize_map = scoutiq_core.visualize_map:main",
         ],
     },
 )

@@ -80,7 +80,8 @@ def save_map(prefix: str, topic: str = '/map', occ: float = 0.65, free: float = 
             '-f', prefix,
             '--occ', str(occ),
             '--free', str(free),
-            '--fmt', 'pgm'
+            '--fmt', 'pgm',
+            '--ros-args', '-p', 'use_sim_time:=true'
         ]
     else:
         cmd = [
@@ -89,7 +90,8 @@ def save_map(prefix: str, topic: str = '/map', occ: float = 0.65, free: float = 
             '-f', prefix,
             '--occ', str(occ),
             '--free', str(free),
-            '--fmt', 'pgm'
+            '--fmt', 'pgm',
+            '--ros-args', '-p', 'use_sim_time:=true'
         ]
 
     print(f"Running map saver: {' '.join(cmd)}")
