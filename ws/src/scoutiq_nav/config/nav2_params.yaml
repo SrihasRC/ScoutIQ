@@ -132,13 +132,13 @@ controller_server:
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
-      min_vel_x: -0.25
+      min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.65
+      max_vel_x: 0.75
       max_vel_y: 0.0
-      max_vel_theta: 2.0
+      max_vel_theta: 2.2
       min_speed_xy: 0.0
-      max_speed_xy: 0.65
+      max_speed_xy: 0.75
       min_speed_theta: 0.0
       acc_lim_x: 2.5
       acc_lim_y: 0.0
@@ -262,7 +262,7 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
-      tolerance: 0.4
+      tolerance: 0.65
       use_astar: false
       allow_unknown: true
 

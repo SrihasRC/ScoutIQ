@@ -15,7 +15,7 @@ def generate_launch_description():
         DeclareLaunchArgument('costmap_updates_topic', default_value='map_updates', description='Topic name for partial updates'),
         DeclareLaunchArgument('visualize', default_value='true', description='Publish visualization markers'),
         DeclareLaunchArgument('planner_frequency', default_value='0.35', description='Planning rate in Hz'),
-        DeclareLaunchArgument('progress_timeout', default_value='30.0', description='Timeout for progress tracking in seconds'),
+        DeclareLaunchArgument('progress_timeout', default_value='12.0', description='Timeout for progress tracking in seconds'),
         DeclareLaunchArgument('potential_scale', default_value='5.0', description='Weight on distance in cost function'),
         DeclareLaunchArgument('orientation_scale', default_value='0.0', description='Weight on orientation'),
         DeclareLaunchArgument('gain_scale', default_value='1.0', description='Weight on frontier size in cost function'),
