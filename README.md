@@ -2,7 +2,7 @@
 
 Autonomous Surveillance & Persistent Open-Vocabulary 3D Semantic Mapping for Indoor Environments.
 
-Rebuilt entirely from legacy ROS 1 / Docker into **native ROS 2 Humble** and **Ignition Gazebo 6 (Fortress)** with **CPU-only ML inference** (GroundingDINO + MobileSAM) and virtual environment isolation via `.venv`.
+Built natively on **ROS 2 Humble** and **Ignition Gazebo 6 (Fortress)** with **CPU-only ML inference** (GroundingDINO + MobileSAM) and virtual environment isolation via `.venv`.
 
 ---
 
