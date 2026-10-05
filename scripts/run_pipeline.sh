@@ -168,11 +168,13 @@ else
     EXPLORE_LAUNCH_PID=$!
     PIDS+=($EXPLORE_LAUNCH_PID)
 
-    # Wait for map to be written and at least 5 poses to be recorded
+    # Wait for exploration to explore the house (until all frontiers are exhausted or timeout)
+    echo "  Exploration running (timeout: ${TIMEOUT_EXPLORE}s)..."
     WAIT_COUNT=0
-    while { [ ! -f "${RUN_DIR}/map.yaml" ] || [ $(ls -1 "${RUN_DIR}/pose/"*.npz 2>/dev/null | wc -l) -lt 5 ]; } && [ $WAIT_COUNT -lt ${TIMEOUT_EXPLORE} ]; do
-        sleep 2
-        WAIT_COUNT=$((WAIT_COUNT+2))
+    sleep 5
+    while [ ! -f "${RUN_DIR}/exploration_done" ] && pgrep -f "scoutiq_explore" >/dev/null && [ $WAIT_COUNT -lt ${TIMEOUT_EXPLORE} ]; do
+        sleep 3
+        WAIT_COUNT=$((WAIT_COUNT+3))
     done
 fi
 

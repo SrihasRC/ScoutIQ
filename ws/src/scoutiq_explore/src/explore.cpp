@@ -128,6 +128,13 @@ void Explore::stop()
     if (save_map_) {
       saveMap();
     }
+    if (!run_dir_.empty()) {
+      std::string done_file = run_dir_ + "/exploration_done";
+      std::ofstream f(done_file);
+      if (f.is_open()) {
+        f << "done\n";
+      }
+    }
     RCLCPP_INFO(get_logger(), "Exploration stopped.");
   }
 }
@@ -292,9 +299,6 @@ void Explore::makePlan()
       prev_goal_.x = std::numeric_limits<double>::infinity();
       prev_goal_.y = std::numeric_limits<double>::infinity();
       last_progress_ = now();
-      if (save_map_) {
-        saveMap();
-      }
       return;
     }
 
