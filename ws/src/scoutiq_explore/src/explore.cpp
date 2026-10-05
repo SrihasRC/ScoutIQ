@@ -89,6 +89,8 @@ Explore::Explore(const rclcpp::NodeOptions & options)
   nav_client_ = rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
 
   last_progress_ = now();
+  prev_goal_.x = std::numeric_limits<double>::infinity();
+  prev_goal_.y = std::numeric_limits<double>::infinity();
   start();
 }
 
@@ -316,13 +318,13 @@ void Explore::makePlan()
   // Find first non-blacklisted frontier
   auto frontier_it = std::find_if_not(
     filtered_frontiers.begin(), filtered_frontiers.end(),
-    [this](const Frontier & f) { return goalOnBlacklist(f.centroid); });
+    [this](const Frontier & f) { return goalOnBlacklist(f.middle); });
 
   // If none found in local filtered set, fallback to search in all global frontiers
   if (frontier_it == filtered_frontiers.end() && radius_ != global_frontier_filter_radius_) {
     frontier_it = std::find_if_not(
       frontiers.begin(), frontiers.end(),
-      [this](const Frontier & f) { return goalOnBlacklist(f.centroid); });
+      [this](const Frontier & f) { return goalOnBlacklist(f.middle); });
   }
 
   if (frontier_it == filtered_frontiers.end() || frontier_it == frontiers.end()) {
@@ -340,31 +342,39 @@ void Explore::makePlan()
     return;
   }
 
-  geometry_msgs::msg::Point target_position = frontier_it->centroid;
+  geometry_msgs::msg::Point target_position = frontier_it->middle;
 
-  // Track progress
-  bool same_goal = (euclideanDistance(prev_goal_, target_position) < 0.05);
+  bool same_goal = (prev_goal_.x != std::numeric_limits<double>::infinity() &&
+                    euclideanDistance(prev_goal_, target_position) < 0.3);
+
+  // If we already have an active goal and target has not substantially changed, monitor progress
+  if (current_goal_handle_ != nullptr && same_goal) {
+    if (prev_distance_ > frontier_it->min_distance + 0.05) {
+      last_progress_ = now();
+      prev_distance_ = frontier_it->min_distance;
+    }
+
+    if ((now() - last_progress_).seconds() > progress_timeout_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Progress timeout (%.1f s) exceeded for goal (%.2f, %.2f). Adding to blacklist.",
+        progress_timeout_, target_position.x, target_position.y);
+      frontier_blacklist_.push_back(target_position);
+      nav_client_->async_cancel_goal(current_goal_handle_);
+      current_goal_handle_ = nullptr;
+      prev_goal_.x = std::numeric_limits<double>::infinity();
+      prev_goal_.y = std::numeric_limits<double>::infinity();
+    }
+    return;
+  }
+
+  if (goal_in_flight_) {
+    return;
+  }
+
   prev_goal_ = target_position;
-  if (!same_goal || prev_distance_ > frontier_it->min_distance) {
-    last_progress_ = now();
-    prev_distance_ = frontier_it->min_distance;
-  }
-
-  // Progress timeout: blacklist current goal if stuck
-  if ((now() - last_progress_).seconds() > progress_timeout_) {
-    RCLCPP_WARN(
-      get_logger(),
-      "Progress timeout (%.1f s) exceeded for goal (%.2f, %.2f). Adding to blacklist.",
-      progress_timeout_, target_position.x, target_position.y);
-    frontier_blacklist_.push_back(target_position);
-    // Replan
-    return;
-  }
-
-  // We don't need to do anything if we are still pursuing the same goal
-  if (same_goal) {
-    return;
-  }
+  prev_distance_ = frontier_it->min_distance;
+  last_progress_ = now();
 
   // Dispatch goal to NavigateToPose action server
   auto goal_msg = NavigateToPose::Goal();
@@ -383,6 +393,8 @@ void Explore::makePlan()
           get_logger(),
           "NavigateToPose goal rejected by action server for (%.2f, %.2f)",
           target_position.x, target_position.y);
+        frontier_blacklist_.push_back(target_position);
+        prev_goal_.x = std::numeric_limits<double>::infinity();
       } else {
         RCLCPP_INFO(
           get_logger(),
@@ -410,6 +422,7 @@ void Explore::reachedGoal(
   const geometry_msgs::msg::Point & frontier_goal)
 {
   current_goal_handle_ = nullptr;
+  goal_in_flight_ = false;
 
   if (result.code == rclcpp_action::ResultCode::ABORTED) {
     RCLCPP_WARN(
@@ -422,6 +435,7 @@ void Explore::reachedGoal(
       get_logger(),
       "NavigateToPose goal (%.2f, %.2f) SUCCEEDED.",
       frontier_goal.x, frontier_goal.y);
+    frontier_blacklist_.push_back(frontier_goal);
   } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
     RCLCPP_INFO(
       get_logger(),
@@ -429,7 +443,11 @@ void Explore::reachedGoal(
       frontier_goal.x, frontier_goal.y);
   }
 
-  // Trigger immediate replan
+  prev_goal_.x = std::numeric_limits<double>::infinity();
+  prev_goal_.y = std::numeric_limits<double>::infinity();
+  last_progress_ = now();
+
+  // Trigger immediate replan for next frontier
   if (is_exploring_) {
     makePlan();
   }

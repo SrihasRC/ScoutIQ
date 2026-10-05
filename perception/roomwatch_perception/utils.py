@@ -51,7 +51,7 @@ def compute_xyz(
 ) -> np.ndarray:
     """Computes 3D point coordinates in the camera optical frame from a depth image."""
     indices = np.indices((height, width), dtype=np.float32).transpose(1, 2, 0)
-    z_e = depth_img
+    z_e = np.nan_to_num(depth_img, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
     x_e = (indices[..., 1] - px) * z_e / fx
     y_e = (indices[..., 0] - py) * z_e / fy
     xyz_img = np.stack([x_e, y_e, z_e], axis=-1)  # Shape: [H x W x 3]
@@ -165,12 +165,15 @@ def pose_in_map_frame(
     py: float = DEFAULT_PY
 ) -> Optional[List[float]]:
     """Calculates object centroid in map frame using camera pose and depth image."""
-    d = depth_array.copy()
+    d = np.nan_to_num(depth_array, nan=0.0, posinf=0.0, neginf=0.0).copy()
     if segment is not None:
         seg_bool = segment.astype(bool)
         d = np.where(seg_bool, d, 0.0)
 
-    d = np.nan_to_num(d, nan=0.0)
+    # Filter out out-of-range sensor depth
+    d[d > 10.0] = 0.0
+    d[d < 0.1] = 0.0
+
     if float(np.max(d)) <= 0.0:
         return None
 
@@ -186,6 +189,8 @@ def pose_in_map_frame(
     xyz_map = np.dot(RT_base[:3, :3], xyz_base.T).T + RT_base[:3, 3]
 
     mean_pose = np.mean(xyz_map, axis=0)
+    if np.any(np.isnan(mean_pose)) or np.any(np.isinf(mean_pose)):
+        return None
     return mean_pose.tolist()
 
 
