@@ -15,6 +15,7 @@ usage() {
     echo "Options:"
     echo "  --mock                 Run fast mock robot instead of full Gazebo"
     echo "  --light                Use lightweight house world for sim"
+    echo "  --headless             Run headless in background without GUI (default)"
     echo "  --gui                  Open Gazebo GUI and RViz2"
     echo "  --run-dir DIR          Specify data output directory"
     echo "  --fake-detector        Use fast mock detector for perception tests"
@@ -27,6 +28,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --mock) USE_MOCK=true; shift ;;
         --light) LIGHT_WORLD=true; shift ;;
+        --headless) GUI=false; shift ;;
         --gui) GUI=true; shift ;;
         --run-dir) RUN_DIR="$2"; shift 2 ;;
         --fake-detector) FAKE_DETECTOR=true; shift ;;
@@ -74,24 +76,41 @@ echo "============================================================"
 
 # Background process management
 PIDS=()
-cleanup() {
+cleanup_all() {
     echo "Terminating running background processes..."
     for pid in "${PIDS[@]}"; do
-        kill "${pid}" 2>/dev/null || true
+        kill -9 "${pid}" 2>/dev/null || true
     done
-    pkill -f "ign gazebo" 2>/dev/null || true
-    pkill -f "parameter_bridge" 2>/dev/null || true
-    pkill -f "robot_state_publisher" 2>/dev/null || true
-    pkill -f "mock_robot.py" 2>/dev/null || true
-    pkill -f "async_slam_toolbox_node" 2>/dev/null || true
-    pkill -f "nav2" 2>/dev/null || true
-    pkill -f "rviz2" 2>/dev/null || true
-    pkill -f "scoutiq_explore" 2>/dev/null || true
-    pkill -f "save_data" 2>/dev/null || true
-    pkill -f "navigate" 2>/dev/null || true
-    pkill -f "rw-semantic" 2>/dev/null || true
+    pkill -9 -f "ign gazebo" 2>/dev/null || true
+    pkill -9 -f "parameter_bridge" 2>/dev/null || true
+    pkill -9 -f "robot_state_publisher" 2>/dev/null || true
+    pkill -9 -f "mock_robot.py" 2>/dev/null || true
+    pkill -9 -f "async_slam_toolbox" 2>/dev/null || true
+    pkill -9 -f "nav2" 2>/dev/null || true
+    pkill -9 -f "lifecycle_manager" 2>/dev/null || true
+    pkill -9 -f "controller_server" 2>/dev/null || true
+    pkill -9 -f "planner_server" 2>/dev/null || true
+    pkill -9 -f "behavior_server" 2>/dev/null || true
+    pkill -9 -f "bt_navigator" 2>/dev/null || true
+    pkill -9 -f "smoother_server" 2>/dev/null || true
+    pkill -9 -f "waypoint_follower" 2>/dev/null || true
+    pkill -9 -f "velocity_smoother" 2>/dev/null || true
+    pkill -9 -f "rviz2" 2>/dev/null || true
+    pkill -9 -f "scoutiq_explore" 2>/dev/null || true
+    pkill -9 -f "save_data" 2>/dev/null || true
+    pkill -9 -f "navigate" 2>/dev/null || true
+    pkill -9 -f "semantic" 2>/dev/null || true
 }
-trap cleanup EXIT
+cleanup() {
+    cleanup_all
+}
+trap cleanup EXIT INT TERM
+
+# Ensure completely clean environment before starting
+echo "Ensuring clean environment (stopping any lingering processes)..."
+cleanup_all
+ros2 daemon stop 2>/dev/null || true
+sleep 1
 
 # 1. Start Simulator / Robot
 echo "[1/4] Starting robot simulation..."
