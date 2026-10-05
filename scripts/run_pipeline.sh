@@ -7,7 +7,9 @@ LIGHT_WORLD=false
 GUI=false
 RUN_DIR=""
 FAKE_DETECTOR=false
-TIMEOUT_EXPLORE=300
+MODEL_TYPE="onnx"
+TEXT_PROMPT="table . chair . sofa . bed . cabinet . refrigerator . door ."
+TIMEOUT_EXPLORE=240
 TIMEOUT_NAV=45
 
 usage() {
@@ -18,8 +20,10 @@ usage() {
     echo "  --headless             Run headless in background without GUI (default)"
     echo "  --gui                  Open Gazebo GUI and RViz2"
     echo "  --run-dir DIR          Specify data output directory"
-    echo "  --fake-detector        Use fast mock detector for perception tests"
-    echo "  --timeout-explore SEC  Exploration time limit in seconds (default: 120)"
+    echo "  --model TYPE           Perception model: onnx (default), gdino, fake"
+    echo "  --prompt TEXT          Semantic prompt for object detection"
+    echo "  --fake-detector        Alias for --model fake"
+    echo "  --timeout-explore SEC  Exploration time limit in seconds (default: 240)"
     echo "  --help, -h             Show this message"
     exit 1
 }
@@ -31,7 +35,9 @@ while [[ $# -gt 0 ]]; do
         --headless) GUI=false; shift ;;
         --gui) GUI=true; shift ;;
         --run-dir) RUN_DIR="$2"; shift 2 ;;
-        --fake-detector) FAKE_DETECTOR=true; shift ;;
+        --model) MODEL_TYPE="$2"; shift 2 ;;
+        --prompt) TEXT_PROMPT="$2"; shift 2 ;;
+        --fake-detector) FAKE_DETECTOR=true; MODEL_TYPE="fake"; shift ;;
         --timeout-explore) TIMEOUT_EXPLORE="$2"; shift 2 ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1"; usage ;;
@@ -176,18 +182,19 @@ else
         sleep 3
         WAIT_COUNT=$((WAIT_COUNT+3))
     done
+
+    # Cleanly finish exploration phase
+    echo "  Exploration phase ended (${WAIT_COUNT}s). Stopping exploration to advance..."
+    pkill -f "scoutiq_explore/explore" 2>/dev/null || true
+    pkill -f "save_data" 2>/dev/null || true
+    sleep 2
 fi
 
 # Ensure map exists (if not generated in time, synthesize minimal map fallback for test integrity)
 if [ ! -f "${RUN_DIR}/map.yaml" ]; then
-    echo "  Generating fallback map for pipeline continuation..."
+    echo "  Saving map from SLAM toolbox..."
     ros2 run scoutiq_nav save_map "${RUN_DIR}" || true
 fi
-
-# Stop exploration and pose recorder before next phase (keep SLAM and Nav2 active)
-pkill -f "scoutiq_explore/explore" 2>/dev/null || true
-pkill -f "save_data" 2>/dev/null || true
-sleep 2
 
 # 3. Stage 2: Trajectory Post-processing
 echo "[3/4] Stage 2: Processing Trajectory (Extract -> TSP)..."
@@ -200,28 +207,47 @@ echo "  Generating 2D map and trajectory visualizations..."
 
 # 4. Stage 3 & 4: Traverse, Semantic Construction, and Update
 echo "[4/4] Stage 3 & 4: Semantic Construct & Update..."
-DETECTOR_ARG=""
-[ "$FAKE_DETECTOR" = true ] && DETECTOR_ARG="--fake-detector"
+MODEL_FLAGS="--model-type ${MODEL_TYPE} --prompt \"${TEXT_PROMPT}\""
+[ "$FAKE_DETECTOR" = true ] && MODEL_FLAGS="--fake-detector"
 
 SIM_TIME_ARG=""
 [ "$USE_MOCK" = false ] && SIM_TIME_ARG="--ros-args -p use_sim_time:=true"
 
-# Run semantic construct
-echo "  Constructing initial 3D semantic graph (graph.json)..."
-scoutiq-semantic-construct --output "${RUN_DIR}/graph.json" --max-iterations 3 ${DETECTOR_ARG} ${SIM_TIME_ARG} &
+# Run semantic construct continuously during patrol
+echo "  Constructing initial 3D semantic graph (graph.json) with ${MODEL_TYPE}..."
+eval "scoutiq-semantic-construct --output \"${RUN_DIR}/graph.json\" ${MODEL_FLAGS} ${SIM_TIME_ARG}" &
 CONSTRUCT_PID=$!
 PIDS+=($CONSTRUCT_PID)
 
 # Run navigation along surveillance trajectory
 ros2 run scoutiq_core navigate "${RUN_DIR}/surveillance_traj.npz" ${SIM_TIME_ARG} || true
+
+# Wait until at least 1 frame is processed and graph is saved before stopping
+WAIT_GRAPH=0
+while [ ! -f "${RUN_DIR}/graph.json" ] && [ $WAIT_GRAPH -lt 30 ]; do
+    sleep 1
+    WAIT_GRAPH=$((WAIT_GRAPH+1))
+done
+
+pkill -SIGINT -f "scoutiq-semantic-construct" 2>/dev/null || true
+kill -SIGINT $CONSTRUCT_PID 2>/dev/null || true
 wait $CONSTRUCT_PID 2>/dev/null || true
 
-# Run semantic update
-echo "  Updating 3D semantic graph (graph_updated.json)..."
-scoutiq-semantic-update --input "${RUN_DIR}/graph.json" --output "${RUN_DIR}/graph_updated.json" --max-iterations 3 ${DETECTOR_ARG} ${SIM_TIME_ARG} &
+# Run semantic update continuously during patrol
+echo "  Updating 3D semantic graph (graph_updated.json) with ${MODEL_TYPE}..."
+eval "scoutiq-semantic-update --input \"${RUN_DIR}/graph.json\" --output \"${RUN_DIR}/graph_updated.json\" ${MODEL_FLAGS} ${SIM_TIME_ARG}" &
 UPDATE_PID=$!
 PIDS+=($UPDATE_PID)
 ros2 run scoutiq_core navigate "${RUN_DIR}/surveillance_traj.npz" ${SIM_TIME_ARG} || true
+
+WAIT_UPDATE=0
+while [ ! -f "${RUN_DIR}/graph_updated.json" ] && [ $WAIT_UPDATE -lt 30 ]; do
+    sleep 1
+    WAIT_UPDATE=$((WAIT_UPDATE+1))
+done
+
+pkill -SIGINT -f "scoutiq-semantic-update" 2>/dev/null || true
+kill -SIGINT $UPDATE_PID 2>/dev/null || true
 wait $UPDATE_PID 2>/dev/null || true
 
 # Generate final semantic map overlay
