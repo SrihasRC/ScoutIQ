@@ -40,6 +40,8 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+WS_DIR="${ROOT_DIR}/ws"
+VENV_DIR="${ROOT_DIR}/.venv"
 
 # Source ROS 2 and workspace
 export PYTHONNOUSERSITE=1
