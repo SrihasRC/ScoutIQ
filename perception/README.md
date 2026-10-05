@@ -1,15 +1,15 @@
-# RoomWatch Perception Pipeline
+# ScoutIQ Perception Pipeline
 
-Standalone Python package for CPU-based 3D semantic mapping in ROS 2 Humble.
+Standalone Python package for CPU-based 3D semantic mapping in ROS 2 Humble (`scoutiq_perception`, with `roomwatch_perception` compatibility shim).
 
 ## Models
 - **GroundingDINO**: Zero-shot open-vocabulary object detector (CPU inference, deformable attention fallback).
 - **MobileSAM**: Lightweight segment-anything model (TinyViT, CPU inference).
 
 ## CLI Entry Points
-- `rw-semantic-construct`: Subscribes to camera stream, performs zero-shot detection & segmentation, and builds `graph.json`.
-- `rw-semantic-update`: Reads existing `graph.json`, tracks FOV changes, adds newly discovered objects, removes missing objects, and writes `graph_updated.json`.
-- `python -m roomwatch_perception.demo <image> [prompt]`: Runs standalone CPU benchmark and outputs timing report.
+- `scoutiq-semantic-construct` (alias: `rw-semantic-construct`): Subscribes to camera stream, performs zero-shot detection & segmentation, and builds `graph.json`.
+- `scoutiq-semantic-update` (alias: `rw-semantic-update`): Reads existing `graph.json`, tracks FOV changes, adds newly discovered objects, removes missing objects, and writes `graph_updated.json`.
+- `python -m scoutiq_perception.demo <image> [prompt]`: Runs standalone CPU benchmark and outputs timing report (also accessible via `roomwatch_perception.demo`).
 
 ## ROS 2 Topics
 - Subscribes:

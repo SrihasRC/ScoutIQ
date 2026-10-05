@@ -1,8 +1,8 @@
-# roomwatch
+# ScoutIQ
 
 Autonomous Surveillance & Persistent Open-Vocabulary 3D Semantic Mapping for Indoor Environments.
 
-Rebuilt entirely from legacy ROS 1 / Docker into **native ROS 2 Humble** and **Ignition Gazebo 6 (Fortress)** with **CPU-only ML inference** (GroundingDINO + MobileSAM) and virtual environment management via `uv`.
+Rebuilt entirely from legacy ROS 1 / Docker into **native ROS 2 Humble** and **Ignition Gazebo 6 (Fortress)** with **CPU-only ML inference** (GroundingDINO + MobileSAM) and virtual environment isolation via `.venv`.
 
 ---
 
@@ -11,11 +11,11 @@ Rebuilt entirely from legacy ROS 1 / Docker into **native ROS 2 Humble** and **I
 ```
 [ Ignition Fortress / Mock ] <--- (ros_gz_bridge) ---> [ ROS 2 Humble Stack ]
         |                                                     |
-  Fetch Robot + World                               +-- SLAM & Nav2 (roomwatch_nav)
-  - DiffDrive (/cmd_vel, /odom)                     +-- Frontier Explore (roomwatch_explore)
-  - 2D LiDAR (/scan)                                +-- Trajectory / Poses (roomwatch_core)
-  - RGB-D Carmine (/head_camera)                    +-- CPU Perception (roomwatch_perception)
-  - Arm/Head Controllers (roomwatch_gz)             +-- Orchestration (roomwatch_bringup)
+  Fetch Robot + World                               +-- SLAM & Nav2 (scoutiq_nav)
+  - DiffDrive (/cmd_vel, /odom)                     +-- Frontier Explore (scoutiq_explore)
+  - 2D LiDAR (/scan)                                +-- Trajectory / Poses (scoutiq_core)
+  - RGB-D Carmine (/head_camera)                    +-- CPU Perception (scoutiq_perception)
+  - Arm/Head Controllers (scoutiq_gz)               +-- Orchestration (scoutiq_bringup)
 ```
 
 ### Operational Pipeline Stages:
@@ -29,20 +29,20 @@ Rebuilt entirely from legacy ROS 1 / Docker into **native ROS 2 Humble** and **I
 ## 2. Directory Layout
 
 ```
-roomwatch/
+scoutiq/ (symlinked from roomwatch/)
 ├── ws/src/
-│   ├── roomwatch_bringup/      # Master launch files, pipeline scripts, RViz config
-│   ├── roomwatch_world/        # AWS small house worlds (full & light) in SDF 1.8
-│   ├── roomwatch_description/  # Fetch URDF, meshes, and Fortress plugin xacros
-│   ├── roomwatch_gz/           # Spawner, ros_gz_bridge configuration, tuck_arm & set_head
-│   ├── roomwatch_nav/          # Nav2 params (DWB local planner) & async slam_toolbox
-│   ├── roomwatch_explore/      # C++ Dynamic window frontier exploration node
-│   └── roomwatch_core/         # Trajectory extraction, TSP solver, Nav2 action client
-├── perception/                 # CPU-only GroundingDINO + MobileSAM (runs in .venv)
-├── scripts/                    # Setup, environment check, weight download, execution runners
-├── tests/                      # Mock robot, unit tests, integration tests, E2E suite
-├── docs/                       # Frozen CONTRACT.md, WP_PROMPTS.md, STATUS.md
-└── data/                       # Run artifacts (map, poses, trajectories, semantic graphs)
+│   ├── scoutiq_bringup/      # Master launch files, pipeline scripts, RViz configs
+│   ├── scoutiq_world/        # AWS small house worlds (full & light) in SDF 1.8
+│   ├── scoutiq_description/  # Fetch URDF, meshes, and Fortress plugin xacros
+│   ├── scoutiq_gz/           # Spawner, ros_gz_bridge configuration, tuck_arm & set_head
+│   ├── scoutiq_nav/          # Nav2 params (DWB local planner) & async slam_toolbox
+│   ├── scoutiq_explore/      # C++ Dynamic window frontier exploration node
+│   └── scoutiq_core/         # Trajectory extraction, TSP solver, Nav2 action client
+├── perception/               # CPU-only GroundingDINO + MobileSAM (scoutiq_perception)
+├── scripts/                  # Setup, environment check, weight download, execution runners
+├── tests/                    # Mock robot, unit tests, integration tests, E2E suite
+├── docs/                     # CONTRACT.md, WP_PROMPTS.md, STATUS.md
+└── data/                     # Run artifacts (map, poses, trajectories, semantic graphs)
 ```
 
 ---
@@ -96,35 +96,35 @@ You can run the entire pipeline from exploration through semantic updates with o
 #### Step 1: Start Simulation
 ```bash
 # Terminal 1: Launch simulation world and robot
-ros2 launch roomwatch_bringup sim.launch.py light:=true headless:=false rviz:=true
+ros2 launch scoutiq_bringup sim.launch.py light:=true headless:=false rviz:=true
 ```
 
 #### Step 2: Autonomous Exploration & Mapping
 ```bash
 # Terminal 2: Launch SLAM, Nav2, frontier explorer, and pose recorder
 RUN_DIR="$(pwd)/data/$(date +%Y-%m-%d_%H-%M-%S)"
-ros2 launch roomwatch_bringup explore.launch.py run_dir:="${RUN_DIR}"
+ros2 launch scoutiq_bringup explore.launch.py run_dir:="${RUN_DIR}"
 ```
 *When exploration completes, the map is saved to `${RUN_DIR}/map.pgm` and `map.yaml`.*
 
 #### Step 3: Trajectory Planning
 ```bash
 # Terminal 3: Extract trajectory and compute TSP surveillance path
-python3 -m roomwatch_core.extract_robot_trajectory "${RUN_DIR}/pose" "${RUN_DIR}/robot_trajectory.json"
-python3 -m roomwatch_core.tsp_surveillance_trajectory "${RUN_DIR}/robot_trajectory.json" "${RUN_DIR}/surveillance_traj.npz"
+python3 -m scoutiq_core.extract_robot_trajectory "${RUN_DIR}/pose" "${RUN_DIR}/robot_trajectory.json"
+python3 -m scoutiq_core.tsp_surveillance_trajectory "${RUN_DIR}/robot_trajectory.json" "${RUN_DIR}/surveillance_traj.npz"
 ```
 
 #### Step 4: Semantic Map Construction
 ```bash
 # Terminal 2: Run surveillance traverse & build 3D semantic graph
-ros2 launch roomwatch_bringup traverse.launch.py run_dir:="${RUN_DIR}"
+ros2 launch scoutiq_bringup traverse.launch.py run_dir:="${RUN_DIR}"
 ```
 *Saves initial semantic graph to `${RUN_DIR}/graph.json`.*
 
 #### Step 5: Semantic Map Update
 ```bash
 # Terminal 2: Run second traverse & update semantic graph
-ros2 launch roomwatch_bringup update.launch.py run_dir:="${RUN_DIR}"
+ros2 launch scoutiq_bringup update.launch.py run_dir:="${RUN_DIR}"
 ```
 *Saves updated semantic graph to `${RUN_DIR}/graph_updated.json`.*
 
@@ -132,7 +132,7 @@ ros2 launch roomwatch_bringup update.launch.py run_dir:="${RUN_DIR}"
 
 ## 5. Testing & Verification
 
-RoomWatch includes complete test suites for every subsystem:
+ScoutIQ includes complete test suites for every subsystem:
 
 ```bash
 # Source environment
@@ -153,7 +153,7 @@ pytest tests/core
 pytest perception/tests
 
 # 5. Dynamic Window Frontier Exploration Tests (13/13 tests)
-colcon test --packages-select roomwatch_explore && colcon test-result --all
+colcon test --packages-select scoutiq_explore && colcon test-result --all
 
 # 6. Complete End-to-End Pipeline Integration Test
 python3 tests/e2e/test_pipeline.py
