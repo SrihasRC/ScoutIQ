@@ -280,6 +280,24 @@ void Explore::makePlan()
       prev_distance_ = current_dist_to_goal;
     }
 
+    // If robot is close enough to frontier (< 0.40m), the area is explored; transition to next frontier
+    if (current_dist_to_goal <= 0.40) {
+      RCLCPP_INFO(
+        get_logger(),
+        "Robot arrived within %.2f m of frontier goal (%.2f, %.2f). Switching to next frontier.",
+        current_dist_to_goal, prev_goal_.x, prev_goal_.y);
+      frontier_blacklist_.push_back(prev_goal_);
+      nav_client_->async_cancel_goal(current_goal_handle_);
+      current_goal_handle_ = nullptr;
+      prev_goal_.x = std::numeric_limits<double>::infinity();
+      prev_goal_.y = std::numeric_limits<double>::infinity();
+      last_progress_ = now();
+      if (save_map_) {
+        saveMap();
+      }
+      return;
+    }
+
     if ((now() - last_progress_).seconds() > progress_timeout_) {
       RCLCPP_WARN(
         get_logger(),
