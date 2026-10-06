@@ -108,13 +108,13 @@ class SemanticMapConstructNode(Node):
         self.graph = nx.Graph()
         self.pose_list: Dict[str, List[List[float]]] = {}
         self.threshold: Dict[str, float] = {
-            "table": 2.0,
-            "chair": 0.6,
+            "table": 2.2,
+            "chair": 1.2,
             "door": 2.0,
-            "bed": 2.0,
-            "sofa": 1.8,
-            "cabinet": 1.2,
-            "refrigerator": 1.2,
+            "bed": 2.5,
+            "sofa": 2.2,
+            "cabinet": 1.5,
+            "refrigerator": 1.5,
         }
 
         self.iter_count = 0
@@ -220,10 +220,40 @@ class SemanticMapConstructNode(Node):
             if pose is None:
                 continue
 
-            self.pose_list[cat], is_nearby = is_nearby_in_map(
-                self.pose_list[cat], pose, threshold=thresh
-            )
-            if not is_nearby:
+            # Outlier rejection: reject points outside the house boundaries or invalid heights
+            if (
+                abs(pose[0]) > 10.0
+                or abs(pose[1]) > 10.0
+                or pose[2] < -0.2
+                or pose[2] > 2.5
+            ):
+                self.get_logger().warn(
+                    f"Outlier detected for {cat} at [{pose[0]:.2f}, {pose[1]:.2f}, {pose[2]:.2f}], skipping."
+                )
+                continue
+
+            # Check existing nodes of the same category to deduplicate or refine centroid
+            best_node = None
+            min_dist = float("inf")
+            for node_name, ndata in self.graph.nodes(data=True):
+                if ndata.get("category") == cat and "pose" in ndata:
+                    dist = float(np.linalg.norm(np.array(ndata["pose"][:2]) - np.array(pose[:2])))
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_node = node_name
+
+            if best_node is not None and min_dist < thresh:
+                # Landmark exists within radius: refine its 3D centroid using running average
+                old_pose = np.array(self.graph.nodes[best_node]["pose"])
+                count = self.graph.nodes[best_node].get("observation_count", 1)
+                new_pose = ((old_pose * count + np.array(pose)) / (count + 1)).tolist()
+                self.graph.nodes[best_node]["pose"] = new_pose
+                self.graph.nodes[best_node]["observation_count"] = count + 1
+                self.get_logger().info(
+                    f"Refined {best_node} centroid (obs={count+1}, dist={min_dist:.2f}m): "
+                    f"[{new_pose[0]:.2f}, {new_pose[1]:.2f}, {new_pose[2]:.2f}]"
+                )
+            else:
                 node_id = f"{cat}_{self.iter_count}_{phrase_iter_[cat]}"
                 self.get_logger().info(f"Adding graph node {node_id} at {pose}")
                 self.graph.add_node(
@@ -232,10 +262,9 @@ class SemanticMapConstructNode(Node):
                     pose=pose,
                     robot_pose=RT_base.tolist(),
                     category=cat,
+                    observation_count=1,
                 )
                 phrase_iter_[cat] += 1
-                if pose not in self.pose_list[cat]:
-                    self.pose_list[cat].append(pose)
 
         # 6. Annotate and publish image
         bbox_annotated_pil = annotate(

@@ -220,9 +220,21 @@ class Navigate(Node):
 
     def track_trajectory(self, waypoints: Sequence[Sequence[float]] = ()) -> None:
         """Navigates sequentially through an array of waypoints, respecting /yes_no pause state."""
-        for i, waypoint in enumerate(waypoints):
-            if i == 0:
-                continue
+        if len(waypoints) == 0:
+            return
+
+        self.get_base_position()
+        start_idx = 0
+        if self.base_position != [0.0, 0.0, 0.0]:
+            dist_to_0 = math.hypot(
+                self.base_position[0] - waypoints[0][0],
+                self.base_position[1] - waypoints[0][1],
+            )
+            if dist_to_0 < 0.4:
+                start_idx = 1
+
+        for i in range(start_idx, len(waypoints)):
+            waypoint = waypoints[i]
 
             while self.pause != 0 and rclpy.ok():
                 self.get_logger().info("Navigation paused via /yes_no... Waiting to resume.")

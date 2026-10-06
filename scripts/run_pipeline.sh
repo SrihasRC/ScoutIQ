@@ -9,7 +9,7 @@ RUN_DIR=""
 FAKE_DETECTOR=false
 MODEL_TYPE="onnx"
 TEXT_PROMPT="table . chair . sofa . bed . cabinet . refrigerator . door ."
-TIMEOUT_EXPLORE=240
+TIMEOUT_EXPLORE=150
 TIMEOUT_NAV=45
 
 usage() {
@@ -194,6 +194,12 @@ fi
 if [ ! -f "${RUN_DIR}/map.yaml" ]; then
     echo "  Saving map from SLAM toolbox..."
     ros2 run scoutiq_nav save_map "${RUN_DIR}" || true
+fi
+
+# Freeze SLAM mapping so the map remains 100% rigid and prevents drift/rotation during patrol
+if [ "$USE_MOCK" = false ]; then
+    echo "  Freezing SLAM mapping (locking map to prevent drift)..."
+    ros2 service call /slam_toolbox/pause_new_measurements slam_toolbox/srv/Pause "{}" 2>/dev/null || true
 fi
 
 # 3. Stage 2: Trajectory Post-processing

@@ -55,14 +55,18 @@ def generate_map_visualizations(run_dir: str) -> None:
             for i in range(len(pts) - 1):
                 cv2.line(traj_img, pts[i], pts[i + 1], (230, 100, 30), 2)
 
-            # Draw waypoints
-            for i, (px, py) in enumerate(pts):
-                if 0 <= px < width and 0 <= py < height:
+            # Draw unique waypoints
+            seen_pts = set()
+            wp_idx = 0
+            for px, py in pts:
+                if 0 <= px < width and 0 <= py < height and (px, py) not in seen_pts:
+                    seen_pts.add((px, py))
                     cv2.circle(traj_img, (px, py), 4, (0, 0, 230), -1)
                     cv2.putText(
-                        traj_img, str(i), (px + 4, py - 4),
+                        traj_img, str(wp_idx), (px + 4, py - 4),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, (30, 140, 30), 1
                     )
+                    wp_idx += 1
             out_traj_png = os.path.join(run_dir, "map_trajectory.png")
             cv2.imwrite(out_traj_png, traj_img)
             print(f"[visualize_map] Saved map trajectory image: {out_traj_png}")
@@ -81,11 +85,15 @@ def generate_map_visualizations(run_dir: str) -> None:
                 graph_data = json.load(f)
 
             color_map = {
-                "table": (220, 50, 50),     # Blue in BGR
-                "chair": (50, 180, 50),     # Green in BGR
-                "door": (50, 50, 220),      # Red in BGR
+                "table": (220, 50, 50),         # Blue in BGR
+                "chair": (50, 180, 50),         # Green in BGR
+                "door": (50, 50, 220),          # Red in BGR
+                "bed": (200, 100, 220),         # Purple/Pink in BGR
+                "sofa": (0, 165, 255),          # Orange in BGR
+                "cabinet": (180, 180, 50),      # Cyan/Teal in BGR
+                "refrigerator": (200, 200, 0),  # Light blue in BGR
             }
-            default_color = (0, 200, 220)   # Yellow in BGR
+            default_color = (0, 200, 220)       # Yellow in BGR
 
             for node in graph_data.get("nodes", []):
                 cat = node.get("category", "object")

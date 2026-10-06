@@ -28,15 +28,18 @@ except ImportError:
 MIN_SEPARATION_TSP = 1.5
 
 
-def tsp_greedy_solution(G: nx.Graph) -> List[Any]:
-    """Computes a greedy Traveling Salesperson Problem tour on graph G."""
-    nodes = sorted(list(G.nodes))
+def tsp_greedy_solution(G: nx.Graph, start_node: Optional[Any] = None) -> List[Any]:
+    """Computes a greedy Traveling Salesperson Problem tour on graph G starting from start_node."""
+    nodes = list(G.nodes)
     if not nodes:
         return []
     if len(nodes) == 1:
         return [nodes[0], nodes[0]]
 
-    path = [nodes[0]]
+    if start_node is None or start_node not in G:
+        start_node = sorted(nodes)[0]
+
+    path = [start_node]
     visited = set(path)
 
     while len(path) < len(nodes):
@@ -48,7 +51,12 @@ def tsp_greedy_solution(G: nx.Graph) -> List[Any]:
         path.append(next_node)
         visited.add(next_node)
 
-    path.append(path[0])
+    # Safely retrace through traversed waypoints back to start
+    # so the robot smoothly returns along the corridor without cutting across walls/sofas:
+    if len(path) > 2:
+        return path + path[-2::-1]
+    elif len(path) == 2:
+        return path + [path[0]]
     return path
 
 
@@ -88,6 +96,56 @@ def preprocess_trajectory_graph(
     return trajectory_graph_
 
 
+def filter_poses_by_map_clearance(
+    trajectory_graph: nx.Graph,
+    map_yaml_path: str,
+    min_clearance: float = 0.45,
+) -> nx.Graph:
+    """Filters out trajectory nodes too close to obstacles or walls."""
+    if not os.path.exists(map_yaml_path):
+        return trajectory_graph
+
+    try:
+        import yaml
+        with open(map_yaml_path, "r") as f:
+            meta = yaml.safe_load(f)
+
+        map_dir = os.path.dirname(os.path.abspath(map_yaml_path))
+        pgm_path = os.path.join(map_dir, meta.get("image", "map.pgm"))
+        if not os.path.exists(pgm_path):
+            return trajectory_graph
+
+        map_img = cv2.imread(pgm_path, cv2.IMREAD_GRAYSCALE)
+        if map_img is None:
+            return trajectory_graph
+
+        res = meta["resolution"]
+        origin = meta["origin"]
+
+        # Free space binary mask: >250 is free space in map_saver (254)
+        free_mask = (map_img > 250).astype(np.uint8)
+        dist_map = cv2.distanceTransform(free_mask, cv2.DIST_L2, 5) * res
+
+        filtered_graph = nx.Graph()
+        for node, data in trajectory_graph.nodes(data=True):
+            pose = data.get("pose", [0.0, 0.0, 0.0])
+            wx, wy = pose[0], pose[1]
+            mx = int((wx - origin[0]) / res)
+            my = map_img.shape[0] - 1 - int((wy - origin[1]) / res)
+
+            if 0 <= my < map_img.shape[0] and 0 <= mx < map_img.shape[1]:
+                clearance = dist_map[my, mx]
+                if clearance >= min_clearance:
+                    filtered_graph.add_node(node, **data)
+
+        if len(filtered_graph.nodes) >= 3:
+            return filtered_graph
+    except Exception as e:
+        print(f"[tsp] Map clearance filtering note: {e}")
+
+    return trajectory_graph
+
+
 def compute_surveillance_trajectory(
     trajectory_source: Union[str, nx.Graph],
     output_npz: Optional[str] = "surveillance_traj.npz",
@@ -102,11 +160,28 @@ def compute_surveillance_trajectory(
     """
     if isinstance(trajectory_source, str):
         robot_trajectory = read_graph_json(trajectory_source)
+        candidate_yaml = os.path.join(os.path.dirname(os.path.abspath(trajectory_source)), "map.yaml")
+        if os.path.exists(candidate_yaml):
+            robot_trajectory = filter_poses_by_map_clearance(robot_trajectory, candidate_yaml, min_clearance=0.45)
     else:
         robot_trajectory = trajectory_source
 
     pruned_trajectory = preprocess_trajectory_graph(robot_trajectory, min_separation=min_separation)
-    surveillance_path = tsp_greedy_solution(pruned_trajectory)
+
+    # Determine best start node closest to the robot's final position at the end of exploration
+    best_start = None
+    if len(robot_trajectory.nodes) > 0 and len(pruned_trajectory.nodes) > 0:
+        last_node = max(robot_trajectory.nodes)
+        last_pose = robot_trajectory.nodes[last_node]["pose"]
+        best_start = min(
+            pruned_trajectory.nodes,
+            key=lambda n: float(norm(
+                (pruned_trajectory.nodes[n]["pose"][0] - last_pose[0],
+                 pruned_trajectory.nodes[n]["pose"][1] - last_pose[1])
+            ))
+        )
+
+    surveillance_path = tsp_greedy_solution(pruned_trajectory, start_node=best_start)
 
     surveillance_traj = []
     for node in surveillance_path:

@@ -129,13 +129,13 @@ class SemanticMapUpdateNode(Node):
 
         self.pose_list: Dict[str, List[List[float]]] = {}
         self.threshold: Dict[str, float] = {
-            "table": 2.0,
-            "chair": 0.6,
+            "table": 2.2,
+            "chair": 1.2,
             "door": 2.0,
-            "bed": 2.0,
-            "sofa": 1.8,
-            "cabinet": 1.2,
-            "refrigerator": 1.2,
+            "bed": 2.5,
+            "sofa": 2.2,
+            "cabinet": 1.5,
+            "refrigerator": 1.5,
         }
 
         # Populate initial pose list from graph
@@ -272,6 +272,18 @@ class SemanticMapUpdateNode(Node):
                 RT_camera, RT_base, depth_img, segment=mask[0], fx=fx, fy=fy, px=px, py=py
             )
             if pose is not None:
+                # Outlier rejection: reject points outside the house boundaries or invalid heights
+                if (
+                    abs(pose[0]) > 10.0
+                    or abs(pose[1]) > 10.0
+                    or pose[2] < -0.2
+                    or pose[2] > 2.5
+                ):
+                    self.get_logger().warn(
+                        f"Outlier detected for {cat} at [{pose[0]:.2f}, {pose[1]:.2f}, {pose[2]:.2f}], skipping."
+                    )
+                    continue
+
                 detected_poses[cat].append(pose)
                 valid_detections.append((i, cat, mask, pose))
 
@@ -299,17 +311,34 @@ class SemanticMapUpdateNode(Node):
                 self.get_logger().info(f"Removing node missing from view: {n}")
                 self.graph.remove_node(n)
 
-        # 7. Add new detections
+        # 7. Add new detections or refine existing landmarks
         phrase_iter_ = {"table": 0, "door": 0, "chair": 0}
         for (i, cat, mask, pose) in valid_detections:
             phrase_iter_.setdefault(cat, 0)
-            self.pose_list.setdefault(cat, [])
             thresh = self.threshold.get(cat, 1.0)
 
-            self.pose_list[cat], is_nearby = is_nearby_in_map(
-                self.pose_list[cat], pose, threshold=thresh
-            )
-            if not is_nearby:
+            # Check existing nodes of the same category to deduplicate or refine centroid
+            best_node = None
+            min_dist = float("inf")
+            for node_name, ndata in self.graph.nodes(data=True):
+                if ndata.get("category") == cat and "pose" in ndata:
+                    dist = float(np.linalg.norm(np.array(ndata["pose"][:2]) - np.array(pose[:2])))
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_node = node_name
+
+            if best_node is not None and min_dist < thresh:
+                # Landmark exists within radius: refine its 3D centroid using running average
+                old_pose = np.array(self.graph.nodes[best_node]["pose"])
+                count = self.graph.nodes[best_node].get("observation_count", 1)
+                new_pose = ((old_pose * count + np.array(pose)) / (count + 1)).tolist()
+                self.graph.nodes[best_node]["pose"] = new_pose
+                self.graph.nodes[best_node]["observation_count"] = count + 1
+                self.get_logger().info(
+                    f"Refined {best_node} centroid (obs={count+1}, dist={min_dist:.2f}m): "
+                    f"[{new_pose[0]:.2f}, {new_pose[1]:.2f}, {new_pose[2]:.2f}]"
+                )
+            else:
                 node_id = f"new_{cat}_{self.iter_count}_{phrase_iter_[cat]}"
                 self.get_logger().info(f"Adding updated graph node {node_id} at {pose}")
                 self.graph.add_node(
@@ -318,10 +347,9 @@ class SemanticMapUpdateNode(Node):
                     pose=pose,
                     robot_pose=RT_base.tolist(),
                     category=cat,
+                    observation_count=1,
                 )
                 phrase_iter_[cat] += 1
-                if pose not in self.pose_list[cat]:
-                    self.pose_list[cat].append(pose)
 
         # 8. Annotate and publish
         bbox_annotated_pil = annotate(

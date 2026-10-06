@@ -201,8 +201,8 @@ local_costmap:
           inf_is_valid: False
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 10.0
-        inflation_radius: 0.50
+        cost_scaling_factor: 7.0
+        inflation_radius: 0.42
       always_send_full_costmap: True
 
 global_costmap:
@@ -238,8 +238,8 @@ global_costmap:
           inf_is_valid: False
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 10.0
-        inflation_radius: 0.50
+        cost_scaling_factor: 7.0
+        inflation_radius: 0.42
       always_send_full_costmap: True
 
 map_server:
@@ -262,8 +262,8 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
-      tolerance: 0.65
-      use_astar: false
+      tolerance: 1.0
+      use_astar: true
       allow_unknown: true
 
 smoother_server:

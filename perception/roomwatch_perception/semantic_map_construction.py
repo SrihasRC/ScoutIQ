@@ -1,6 +1,7 @@
 """Semantic map construction node (CLI: rw-semantic-construct)."""
 
 import argparse
+import os
 import sys
 import threading
 import time
@@ -40,12 +41,13 @@ class SemanticMapConstructNode(Node):
 
     def __init__(
         self,
-        text_prompt: str = "table . door . chair .",
+        text_prompt: str = "table . chair . sofa . bed . cabinet . refrigerator . door .",
         box_threshold: float = 0.35,
         text_threshold: float = 0.35,
         output_file: str = "graph.json",
         rate_limit_sec: float = 2.0,
         fake_detector: bool = False,
+        model_type: str = "onnx",
         max_iterations: int = -1,
         target_size: int = 800,
     ):
@@ -58,6 +60,7 @@ class SemanticMapConstructNode(Node):
         self.declare_parameter("output_file", output_file)
         self.declare_parameter("rate_limit_sec", rate_limit_sec)
         self.declare_parameter("fake_detector", fake_detector)
+        self.declare_parameter("model_type", model_type)
         self.declare_parameter("max_iterations", max_iterations)
         self.declare_parameter("target_size", target_size)
 
@@ -68,6 +71,7 @@ class SemanticMapConstructNode(Node):
         self.output_file = self.get_parameter("output_file").value
         self.rate_limit_sec = float(self.get_parameter("rate_limit_sec").value)
         self.fake_detector = bool(self.get_parameter("fake_detector").value)
+        self.model_type = str(self.get_parameter("model_type").value)
         self.max_iterations = int(self.get_parameter("max_iterations").value)
         self.target_size = int(self.get_parameter("target_size").value)
 
@@ -83,17 +87,35 @@ class SemanticMapConstructNode(Node):
         )
 
         # Initialize perception models
-        self.get_logger().info(f"Initializing perception models (fake_detector={self.fake_detector})...")
+        self.get_logger().info(f"Initializing perception models (fake_detector={self.fake_detector}, model_type={self.model_type})...")
         if self.fake_detector:
             self.gdino = FakeObjectPredictor(device="cpu")
             self.sam = FakeSAMPredictor(device="cpu")
+        elif self.model_type == "onnx":
+            try:
+                from .perception import YOLOWorldONNXPredictor
+                self.gdino = YOLOWorldONNXPredictor(device="cpu")
+                self.sam = SegmentAnythingPredictor(device="cpu")
+                self.get_logger().info("Using YOLO-World ONNX detector + MobileSAM segmenter.")
+            except Exception as e:
+                self.get_logger().warn(f"Failed to load ONNX detector ({e}), falling back to GroundingDINO.")
+                self.gdino = GroundingDINOObjectPredictor(device="cpu")
+                self.sam = SegmentAnythingPredictor(device="cpu")
         else:
             self.gdino = GroundingDINOObjectPredictor(device="cpu")
             self.sam = SegmentAnythingPredictor(device="cpu")
 
         self.graph = nx.Graph()
-        self.pose_list: Dict[str, List[List[float]]] = {"table": [], "chair": [], "door": []}
-        self.threshold: Dict[str, float] = {"table": 2.0, "chair": 0.6, "door": 2.0}
+        self.pose_list: Dict[str, List[List[float]]] = {}
+        self.threshold: Dict[str, float] = {
+            "table": 2.2,
+            "chair": 1.2,
+            "door": 2.0,
+            "bed": 2.5,
+            "sofa": 2.2,
+            "cabinet": 1.5,
+            "refrigerator": 1.5,
+        }
 
         self.iter_count = 0
         self.last_process_time = 0.0
@@ -198,10 +220,40 @@ class SemanticMapConstructNode(Node):
             if pose is None:
                 continue
 
-            self.pose_list[cat], is_nearby = is_nearby_in_map(
-                self.pose_list[cat], pose, threshold=thresh
-            )
-            if not is_nearby:
+            # Outlier rejection: reject points outside the house boundaries or invalid heights
+            if (
+                abs(pose[0]) > 10.0
+                or abs(pose[1]) > 10.0
+                or pose[2] < -0.2
+                or pose[2] > 2.5
+            ):
+                self.get_logger().warn(
+                    f"Outlier detected for {cat} at [{pose[0]:.2f}, {pose[1]:.2f}, {pose[2]:.2f}], skipping."
+                )
+                continue
+
+            # Check existing nodes of the same category to deduplicate or refine centroid
+            best_node = None
+            min_dist = float("inf")
+            for node_name, ndata in self.graph.nodes(data=True):
+                if ndata.get("category") == cat and "pose" in ndata:
+                    dist = float(np.linalg.norm(np.array(ndata["pose"][:2]) - np.array(pose[:2])))
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_node = node_name
+
+            if best_node is not None and min_dist < thresh:
+                # Landmark exists within radius: refine its 3D centroid using running average
+                old_pose = np.array(self.graph.nodes[best_node]["pose"])
+                count = self.graph.nodes[best_node].get("observation_count", 1)
+                new_pose = ((old_pose * count + np.array(pose)) / (count + 1)).tolist()
+                self.graph.nodes[best_node]["pose"] = new_pose
+                self.graph.nodes[best_node]["observation_count"] = count + 1
+                self.get_logger().info(
+                    f"Refined {best_node} centroid (obs={count+1}, dist={min_dist:.2f}m): "
+                    f"[{new_pose[0]:.2f}, {new_pose[1]:.2f}, {new_pose[2]:.2f}]"
+                )
+            else:
                 node_id = f"{cat}_{self.iter_count}_{phrase_iter_[cat]}"
                 self.get_logger().info(f"Adding graph node {node_id} at {pose}")
                 self.graph.add_node(
@@ -210,10 +262,9 @@ class SemanticMapConstructNode(Node):
                     pose=pose,
                     robot_pose=RT_base.tolist(),
                     category=cat,
+                    observation_count=1,
                 )
                 phrase_iter_[cat] += 1
-                if pose not in self.pose_list[cat]:
-                    self.pose_list[cat].append(pose)
 
         # 6. Annotate and publish image
         bbox_annotated_pil = annotate(
@@ -225,6 +276,18 @@ class SemanticMapConstructNode(Node):
         rgb_msg.header.stamp = rgb_frame_stamp
         rgb_msg.header.frame_id = rgb_frame_id
         self.image_pub.publish(rgb_msg)
+
+        # Save segmented detection image to disk for inspection
+        try:
+            out_dir = os.path.dirname(os.path.abspath(self.output_file))
+            seg_dir = os.path.join(out_dir, "segmented")
+            os.makedirs(seg_dir, exist_ok=True)
+            detected_names = "_".join(sorted(list(set(phrases))))
+            img_filename = f"construct_{self.iter_count:03d}_{detected_names}.png"
+            bbox_annotated_pil.save(os.path.join(seg_dir, img_filename))
+            self.get_logger().info(f"Saved segmented image to {os.path.join(seg_dir, img_filename)}")
+        except Exception as e:
+            self.get_logger().warn(f"Failed to save segmented image: {e}")
 
         # 7. Publish RViz markers and save graph
         self.publish_graph_to_rviz()
@@ -277,11 +340,12 @@ class SemanticMapConstructNode(Node):
 def main(args: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Construct 3D semantic graph from robot camera stream.")
     parser.add_argument("--output", "-o", default="graph.json", help="Path to output graph.json")
-    parser.add_argument("--text-prompt", "--prompt", default="table . door . chair .", help="Text prompt for detector")
+    parser.add_argument("--text-prompt", "--prompt", default="table . chair . sofa . bed . cabinet . refrigerator . door .", help="Text prompt for detector")
     parser.add_argument("--box-threshold", type=float, default=0.35, help="Bounding box confidence threshold")
     parser.add_argument("--text-threshold", type=float, default=0.35, help="Text matching threshold")
     parser.add_argument("--rate-limit", type=float, default=2.0, help="Min seconds between frame processing")
     parser.add_argument("--fake-detector", action="store_true", help="Use fast fake detector for mock tests")
+    parser.add_argument("--model-type", default="onnx", choices=["onnx", "gdino", "fake"], help="Detection model backend")
     parser.add_argument("--max-iterations", type=int, default=-1, help="Max frames to process (-1 for continuous)")
     parser.add_argument("--target-size", type=int, default=800, help="Detection image resize target")
 
@@ -295,6 +359,7 @@ def main(args: Optional[List[str]] = None) -> None:
         output_file=parsed.output,
         rate_limit_sec=parsed.rate_limit,
         fake_detector=parsed.fake_detector,
+        model_type=parsed.model_type,
         max_iterations=parsed.max_iterations,
         target_size=parsed.target_size,
     )
@@ -307,7 +372,8 @@ def main(args: Optional[List[str]] = None) -> None:
     finally:
         node.save_graph()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
