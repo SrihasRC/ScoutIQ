@@ -24,6 +24,17 @@ except ImportError:
     from utils import read_graph_json
 
 
+try:
+    from action_msgs.msg import GoalStatus
+    STATUS_SUCCEEDED = GoalStatus.STATUS_SUCCEEDED
+    STATUS_CANCELED = GoalStatus.STATUS_CANCELED
+    STATUS_ABORTED = GoalStatus.STATUS_ABORTED
+except ImportError:
+    STATUS_SUCCEEDED = 4
+    STATUS_CANCELED = 5
+    STATUS_ABORTED = 6
+
+
 class Navigate(Node):
     """High-level robot navigation interface wrapping Nav2 NavigateToPose."""
 
@@ -142,60 +153,107 @@ class Navigate(Node):
     def send_goal_and_wait(
         self,
         goal: NavigateToPose.Goal,
-        timeout_sec: Optional[float] = 25.0,
+        timeout_sec: Optional[float] = None,
+        max_retries: int = 2,
     ) -> Optional[Any]:
-        """Sends goal to NavigateToPose and waits for result synchronously."""
-        if not self.nav_to_pose_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().error("NavigateToPose action server not available!")
-            return None
+        """Sends goal to NavigateToPose and waits for result synchronously based on feedback progress."""
+        for attempt in range(max_retries + 1):
+            if not self.nav_to_pose_client.wait_for_server(timeout_sec=5.0):
+                self.get_logger().error("NavigateToPose action server not available!")
+                return None
 
-        event = threading.Event()
-        result_holder = {"goal_handle": None, "result": None, "status": None}
+            event = threading.Event()
+            result_holder = {"goal_handle": None, "result": None, "status": None}
+            last_progress_time = [time.time()]
+            last_distance_remaining = [float("inf")]
 
-        def goal_response_callback(future):
-            goal_handle = future.result()
-            result_holder["goal_handle"] = goal_handle
-            if not goal_handle.accepted:
-                self.get_logger().warn("Goal was rejected by action server.")
+            def goal_response_callback(future):
+                goal_handle = future.result()
+                result_holder["goal_handle"] = goal_handle
+                if not goal_handle.accepted:
+                    self.get_logger().warn(
+                        f"Goal was rejected by action server (attempt {attempt + 1}/{max_retries + 1})."
+                    )
+                    event.set()
+                    return
+                self.get_logger().info("Goal accepted by action server.")
+                result_future = goal_handle.get_result_async()
+                result_future.add_done_callback(result_callback)
+
+            def result_callback(future):
+                res = future.result()
+                result_holder["result"] = res.result
+                result_holder["status"] = res.status
+                if res.status == STATUS_SUCCEEDED:
+                    self.get_logger().info(f"Navigation completed successfully (status: {res.status})")
+                elif res.status == STATUS_ABORTED:
+                    self.get_logger().warn(f"Navigation was aborted by action server (status: {res.status})")
+                elif res.status == STATUS_CANCELED:
+                    self.get_logger().info(f"Navigation was canceled (status: {res.status})")
+                else:
+                    self.get_logger().warn(f"Navigation finished with non-success status: {res.status}")
                 event.set()
-                return
-            self.get_logger().info("Goal accepted by action server.")
-            result_future = goal_handle.get_result_async()
-            result_future.add_done_callback(result_callback)
 
-        def result_callback(future):
-            res = future.result()
-            result_holder["result"] = res.result
-            result_holder["status"] = res.status
-            if res.status == 4:
-                self.get_logger().info(f"Navigation completed successfully (status: {res.status})")
+            def feedback_callback(feedback_msg):
+                fb = feedback_msg.feedback
+                dist = getattr(fb, "distance_remaining", None)
+                if dist is not None:
+                    if dist < last_distance_remaining[0] - 0.05:
+                        last_progress_time[0] = time.time()
+                        last_distance_remaining[0] = dist
+
+            if self._spin_thread is not None and self._spin_thread.is_alive():
+                send_goal_future = self.nav_to_pose_client.send_goal_async(
+                    goal, feedback_callback=feedback_callback
+                )
+                send_goal_future.add_done_callback(goal_response_callback)
+
+                stalled_limit = 45.0
+                while not event.is_set() and rclpy.ok():
+                    if event.wait(timeout=1.0):
+                        break
+                    if timeout_sec is not None and (time.time() - last_progress_time[0]) > timeout_sec:
+                        self.get_logger().warn(f"Navigation exceeded user timeout ({timeout_sec}s).")
+                        if result_holder["goal_handle"] is not None:
+                            result_holder["goal_handle"].cancel_goal_async()
+                        break
+                    if (time.time() - last_progress_time[0]) > stalled_limit:
+                        self.get_logger().warn(f"No navigation progress for {stalled_limit}s; canceling goal.")
+                        if result_holder["goal_handle"] is not None:
+                            result_holder["goal_handle"].cancel_goal_async()
+                        break
             else:
-                self.get_logger().warn(f"Navigation finished with non-success status: {res.status}")
-            event.set()
+                send_goal_future = self.nav_to_pose_client.send_goal_async(
+                    goal, feedback_callback=feedback_callback
+                )
+                rclpy.spin_until_future_complete(self, send_goal_future, timeout_sec=5.0)
+                goal_handle = send_goal_future.result()
+                if goal_handle is None or not goal_handle.accepted:
+                    return None
+                result_future = goal_handle.get_result_async()
+                rclpy.spin_until_future_complete(self, result_future)
+                if result_future.done():
+                    res = result_future.result()
+                    result_holder["result"] = res.result
+                    result_holder["status"] = res.status
 
-        # If running with spin thread:
-        if self._spin_thread is not None and self._spin_thread.is_alive():
-            send_goal_future = self.nav_to_pose_client.send_goal_async(goal)
-            send_goal_future.add_done_callback(goal_response_callback)
-            signaled = event.wait(timeout=timeout_sec)
-            if not signaled:
-                self.get_logger().warn("Navigation timed out waiting for action result.")
-                if result_holder["goal_handle"] is not None:
-                    result_holder["goal_handle"].cancel_goal_async()
+            if result_holder["status"] == STATUS_SUCCEEDED:
+                return result_holder["result"]
+            elif result_holder["status"] == STATUS_ABORTED:
+                if attempt < max_retries:
+                    self.get_logger().warn(
+                        f"Action goal aborted (attempt {attempt + 1}/{max_retries + 1}); "
+                        f"executing recovery retry in 1.5s..."
+                    )
+                    time.sleep(1.5)
+                    continue
+                else:
+                    self.get_logger().error(f"Action goal aborted after {max_retries + 1} attempts.")
+                    return None
+            else:
                 return None
-            if result_holder["status"] != 4:
-                return None
-            return result_holder["result"]
-        else:
-            # Fallback when spun by external loop
-            send_goal_future = self.nav_to_pose_client.send_goal_async(goal)
-            rclpy.spin_until_future_complete(self, send_goal_future, timeout_sec=5.0)
-            goal_handle = send_goal_future.result()
-            if goal_handle is None or not goal_handle.accepted:
-                return None
-            result_future = goal_handle.get_result_async()
-            rclpy.spin_until_future_complete(self, result_future, timeout_sec=timeout_sec)
-            return result_future.result().result if result_future.done() else None
+
+        return None
 
     def navigate_to(
         self,
@@ -203,6 +261,7 @@ class Navigate(Node):
         wait_until: bool = False,
         set_orientation: bool = False,
         orientation_qt: Optional[Sequence[float]] = None,
+        max_retries: int = 2,
     ) -> Optional[Any]:
         """Navigates robot to target pose in map frame."""
         if set_orientation:
@@ -215,7 +274,7 @@ class Navigate(Node):
                 orientation_qt = self.compute_orientation(self.base_position, pose)
             self.set_goal(pose, orientation_qt)
 
-        result = self.send_goal_and_wait(self.goal)
+        result = self.send_goal_and_wait(self.goal, max_retries=max_retries)
         return result
 
     def track_trajectory(self, waypoints: Sequence[Sequence[float]] = ()) -> None:
@@ -244,7 +303,11 @@ class Navigate(Node):
                 break
 
             self.get_logger().info(f"Navigating to waypoint {i}/{len(waypoints) - 1}: {waypoint}")
-            self.navigate_to(waypoint)
+            res = self.navigate_to(waypoint, max_retries=2)
+            if res is None:
+                self.get_logger().warn(
+                    f"Waypoint {i} was aborted or reached retry limit. Advancing to next waypoint."
+                )
 
     def navigate_to_object_class(
         self,

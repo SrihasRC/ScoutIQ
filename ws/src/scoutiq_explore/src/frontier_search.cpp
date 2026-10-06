@@ -120,7 +120,7 @@ std::vector<Frontier> FrontierSearch::searchFrom(geometry_msgs::msg::Point posit
         frontier_flag[nbr] = true;
         Frontier new_frontier = buildNewFrontier(nbr, pos, frontier_flag);
 
-        if (new_frontier.size * costmap_->getResolution() >= min_frontier_size_) {
+        if (new_frontier.size * costmap_->getResolution() >= 0.45 && new_frontier.width >= 0.45) {
           bool too_close = false;
           for (const auto & frontier : frontier_list) {
             if (euclideanDistance(new_frontier.centroid, frontier.centroid) < min_frontier_spacing_) {
@@ -221,6 +221,19 @@ Frontier FrontierSearch::buildNewFrontier(
   output.centroid.x /= output.size;
   output.centroid.y /= output.size;
 
+  // Compute continuous physical width of cluster
+  double min_x = std::numeric_limits<double>::infinity();
+  double max_x = -std::numeric_limits<double>::infinity();
+  double min_y = std::numeric_limits<double>::infinity();
+  double max_y = -std::numeric_limits<double>::infinity();
+  for (const auto & pt : output.points) {
+    min_x = std::min(min_x, pt.x);
+    max_x = std::max(max_x, pt.x);
+    min_y = std::min(min_y, pt.y);
+    max_y = std::max(max_y, pt.y);
+  }
+  output.width = std::max(std::hypot(max_x - min_x, max_y - min_y), output.size * costmap_->getResolution());
+
   // Find the point on the frontier closest to the centroid
   double best_dist_to_centroid = std::numeric_limits<double>::infinity();
   geometry_msgs::msg::Point best_pt = output.initial;
@@ -232,13 +245,13 @@ Frontier FrontierSearch::buildNewFrontier(
     }
   }
 
-  // Pull target slightly (0.25 m) towards reference (robot position) into known free space
+  // Project/offset target point 0.30 m inward towards reference (robot position) into guaranteed free space
   double dx = reference_x - best_pt.x;
   double dy = reference_y - best_pt.y;
   double len = std::hypot(dx, dy);
   if (len > 0.35) {
-    best_pt.x += (dx / len) * 0.25;
-    best_pt.y += (dy / len) * 0.25;
+    best_pt.x += (dx / len) * 0.30;
+    best_pt.y += (dy / len) * 0.30;
   }
   output.middle = best_pt;
 

@@ -207,11 +207,16 @@ class SemanticMapUpdateNode(Node):
         px = data["px"]
         py = data["py"]
 
+        RT_camera_to_map = data.get("RT_camera_to_map")
+
         h, w = im_color.shape[:2]
         img_pil = PILImg.fromarray(im_color)
 
         # 1. FOV polygon calculation in map frame
-        fov_points = get_fov_points_in_map(depth_img, RT_camera, RT_base, fx=fx, fy=fy, px=px, py=py)
+        if RT_camera_to_map is not None:
+            fov_points = get_fov_points_in_map(depth_img, RT_camera_to_map, None, fx=fx, fy=fy, px=px, py=py)
+        else:
+            fov_points = get_fov_points_in_map(depth_img, RT_camera, RT_base, fx=fx, fy=fy, px=px, py=py)
         fov_poly = Polygon(fov_points)
         if not fov_poly.is_valid:
             fov_poly = fov_poly.buffer(0)
@@ -268,9 +273,14 @@ class SemanticMapUpdateNode(Node):
         for i, mask in enumerate(mask_array):
             cat = phrases[i]
             detected_poses.setdefault(cat, [])
-            pose = pose_in_map_frame(
-                RT_camera, RT_base, depth_img, segment=mask[0], fx=fx, fy=fy, px=px, py=py
-            )
+            if RT_camera_to_map is not None:
+                pose = pose_in_map_frame(
+                    RT_camera_to_map, None, depth_img, segment=mask[0], fx=fx, fy=fy, px=px, py=py
+                )
+            else:
+                pose = pose_in_map_frame(
+                    RT_camera, RT_base, depth_img, segment=mask[0], fx=fx, fy=fy, px=px, py=py
+                )
             if pose is not None:
                 # Outlier rejection: reject points outside the house boundaries or invalid heights
                 if (
@@ -296,7 +306,7 @@ class SemanticMapUpdateNode(Node):
                 cat = ndata.get("category", "")
                 pose_ = ndata.get("pose", [0, 0, 0])
                 point = Point(pose_[0], pose_[1])
-                thresh = self.threshold.get(cat, 1.0)
+                thresh = 0.8
 
                 if fov_poly.contains(point):
                     cat_dets = detected_poses.get(cat, [])
@@ -311,11 +321,10 @@ class SemanticMapUpdateNode(Node):
                 self.get_logger().info(f"Removing node missing from view: {n}")
                 self.graph.remove_node(n)
 
-        # 7. Add new detections or refine existing landmarks
+        # 7. Add new detections or refine existing landmarks (merge if dist < 0.8m)
         phrase_iter_ = {"table": 0, "door": 0, "chair": 0}
         for (i, cat, mask, pose) in valid_detections:
             phrase_iter_.setdefault(cat, 0)
-            thresh = self.threshold.get(cat, 1.0)
 
             # Check existing nodes of the same category to deduplicate or refine centroid
             best_node = None
@@ -327,15 +336,15 @@ class SemanticMapUpdateNode(Node):
                         min_dist = dist
                         best_node = node_name
 
-            if best_node is not None and min_dist < thresh:
-                # Landmark exists within radius: refine its 3D centroid using running average
+            if best_node is not None and min_dist < 0.8:
+                # Landmark exists within 0.8m: refine its 3D centroid using running average
                 old_pose = np.array(self.graph.nodes[best_node]["pose"])
                 count = self.graph.nodes[best_node].get("observation_count", 1)
                 new_pose = ((old_pose * count + np.array(pose)) / (count + 1)).tolist()
                 self.graph.nodes[best_node]["pose"] = new_pose
                 self.graph.nodes[best_node]["observation_count"] = count + 1
                 self.get_logger().info(
-                    f"Refined {best_node} centroid (obs={count+1}, dist={min_dist:.2f}m): "
+                    f"Refined {best_node} centroid (obs={count+1}, dist={min_dist:.2f}m < 0.8m): "
                     f"[{new_pose[0]:.2f}, {new_pose[1]:.2f}, {new_pose[2]:.2f}]"
                 )
             else:
@@ -417,12 +426,21 @@ class SemanticMapUpdateNode(Node):
             node_id += 1
         self.marker_pub.publish(marker_array)
 
+    def destroy_node(self) -> bool:
+        self._running = False
+        if hasattr(self, "worker_thread") and self.worker_thread.is_alive():
+            self.worker_thread.join(timeout=1.0)
+        if hasattr(self, "listener"):
+            self.listener.destroy()
+        return super().destroy_node()
+
     def save_graph(self) -> None:
         self.get_logger().info(f"Saving updated graph with {len(self.graph.nodes)} nodes to {self.output_file}")
         save_graph_json(self.graph, file=self.output_file)
 
 
 def main(args: Optional[List[str]] = None) -> None:
+    from rclpy.executors import ExternalShutdownException
     parser = argparse.ArgumentParser(description="Update 3D semantic graph from robot camera stream.")
     parser.add_argument("--input", "-i", default="graph.json", help="Path to input graph.json")
     parser.add_argument("--output", "-o", default="graph_updated.json", help="Path to output graph_updated.json")
@@ -454,13 +472,17 @@ def main(args: Optional[List[str]] = None) -> None:
     try:
         while rclpy.ok() and node._running:
             rclpy.spin_once(node, timeout_sec=0.1)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        node._running = False
         node.save_graph()
         node.destroy_node()
         if rclpy.ok():
-            rclpy.shutdown()
+            try:
+                rclpy.shutdown()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

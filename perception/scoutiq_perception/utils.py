@@ -51,7 +51,8 @@ def compute_xyz(
 ) -> np.ndarray:
     """Computes 3D point coordinates in the camera optical frame from a depth image."""
     indices = np.indices((height, width), dtype=np.float32).transpose(1, 2, 0)
-    z_e = np.nan_to_num(depth_img, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+    z_e = np.where(np.isfinite(depth_img), depth_img, 0.0).astype(np.float32)
+    z_e = np.clip(z_e, 0.0, 10.0)
     x_e = (indices[..., 1] - px) * z_e / fx
     y_e = (indices[..., 0] - py) * z_e / fy
     xyz_img = np.stack([x_e, y_e, z_e], axis=-1)  # Shape: [H x W x 3]
@@ -119,18 +120,20 @@ def get_fov_points_in_baselink(
     px: float = DEFAULT_PX,
     py: float = DEFAULT_PY
 ) -> List[List[float]]:
-    depth_copy = depth_array.copy()
-    depth_copy = np.nan_to_num(depth_copy, nan=0.0)
-    xyz_array = compute_xyz(
-        depth_copy, fx, fy, px, py, depth_copy.shape[0], depth_copy.shape[1]
-    ).reshape((-1, 3))
-
-    mask = ~(np.all(xyz_array == [0.0, 0.0, 0.0], axis=1))
-    xyz_array = xyz_array[mask]
-    if len(xyz_array) == 0:
+    valid = np.isfinite(depth_array) & (depth_array >= 0.35) & (depth_array <= 4.0)
+    if np.count_nonzero(valid) < 50:
         return [[0.0, 0.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]]
 
+    indices = np.argwhere(valid)
+    z_valid = depth_array[valid]
+    x_valid = (indices[:, 1] - px) * z_valid / fx
+    y_valid = (indices[:, 0] - py) * z_valid / fy
+    xyz_array = np.stack([x_valid, y_valid, z_valid], axis=-1)
+
     xyz_base = np.dot(RT_camera[:3, :3], xyz_array.T).T + RT_camera[:3, 3]
+    xyz_base = xyz_base[np.all(np.isfinite(xyz_base), axis=1)]
+    if len(xyz_base) == 0:
+        return [[0.0, 0.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0]]
 
     min_x = float(np.min(xyz_base[:, 0]))
     max_x = float(np.max(xyz_base[:, 0]))
@@ -143,20 +146,29 @@ def get_fov_points_in_baselink(
 def get_fov_points_in_map(
     depth_array: np.ndarray,
     RT_camera: np.ndarray,
-    RT_base: np.ndarray,
+    RT_base: Optional[np.ndarray] = None,
     fx: float = DEFAULT_FX,
     fy: float = DEFAULT_FY,
     px: float = DEFAULT_PX,
     py: float = DEFAULT_PY
 ) -> List[List[float]]:
     points_baselink = get_fov_points_in_baselink(depth_array, RT_camera, fx, fy, px, py)
-    points_map = np.dot(RT_base[:3, :3], np.array(points_baselink).T).T + RT_base[:3, 3]
-    return points_map.tolist()
+    if RT_base is not None:
+        points_map = np.dot(RT_base[:3, :3], np.array(points_baselink).T).T + RT_base[:3, 3]
+    else:
+        points_map = np.array(points_baselink)
+    points_clean = []
+    for pt in points_map.tolist():
+        if all(np.isfinite(v) for v in pt):
+            points_clean.append([float(pt[0]), float(pt[1]), float(pt[2])])
+        else:
+            points_clean.append([0.0, 0.0, 0.0])
+    return points_clean
 
 
 def pose_in_map_frame(
     RT_camera: np.ndarray,
-    RT_base: np.ndarray,
+    RT_base: Optional[np.ndarray],
     depth_array: np.ndarray,
     segment: Optional[np.ndarray] = None,
     fx: float = DEFAULT_FX,
@@ -165,31 +177,33 @@ def pose_in_map_frame(
     py: float = DEFAULT_PY
 ) -> Optional[List[float]]:
     """Calculates object centroid in map frame using camera pose and depth image."""
-    d = np.nan_to_num(depth_array, nan=0.0, posinf=0.0, neginf=0.0).copy()
-    if segment is not None:
-        seg_bool = segment.astype(bool)
-        d = np.where(seg_bool, d, 0.0)
+    mask = (segment > 0) if segment is not None else np.ones(depth_array.shape[:2], dtype=bool)
 
-    # Filter out out-of-range sensor depth
-    d[d > 10.0] = 0.0
-    d[d < 0.1] = 0.0
-
-    if float(np.max(d)) <= 0.0:
+    # Strict valid depth bounds to avoid runtime warnings and polygon crashes
+    valid = np.isfinite(depth_array) & (depth_array >= 0.35) & (depth_array <= 4.0) & (mask > 0)
+    if np.count_nonzero(valid) < 50:
         return None
 
-    xyz_array = compute_xyz(d, fx, fy, px, py, d.shape[0], d.shape[1]).reshape((-1, 3))
-    mask = ~(np.all(xyz_array == [0.0, 0.0, 0.0], axis=1))
-    xyz_array = xyz_array[mask]
-    if len(xyz_array) == 0:
+    indices = np.argwhere(valid)
+    z_valid = depth_array[valid]
+    x_valid = (indices[:, 1] - px) * z_valid / fx
+    y_valid = (indices[:, 0] - py) * z_valid / fy
+    points_3d = np.stack([x_valid, y_valid, z_valid], axis=-1)
+
+    if len(points_3d) == 0:
         return None
 
-    # Optical camera frame -> base_link
-    xyz_base = np.dot(RT_camera[:3, :3], xyz_array.T).T + RT_camera[:3, 3]
-    # base_link -> map
-    xyz_map = np.dot(RT_base[:3, :3], xyz_base.T).T + RT_base[:3, 3]
+    if RT_base is not None:
+        # Optical camera frame -> base_link
+        xyz_base = np.dot(RT_camera[:3, :3], points_3d.T).T + RT_camera[:3, 3]
+        # base_link -> map
+        xyz_map = np.dot(RT_base[:3, :3], xyz_base.T).T + RT_base[:3, 3]
+    else:
+        # Direct optical camera frame -> map
+        xyz_map = np.dot(RT_camera[:3, :3], points_3d.T).T + RT_camera[:3, 3]
 
     mean_pose = np.mean(xyz_map, axis=0)
-    if np.any(np.isnan(mean_pose)) or np.any(np.isinf(mean_pose)):
+    if np.any(~np.isfinite(mean_pose)):
         return None
     return mean_pose.tolist()
 

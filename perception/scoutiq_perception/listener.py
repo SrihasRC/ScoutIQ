@@ -5,8 +5,10 @@ from typing import Dict, Optional, Tuple
 
 from cv_bridge import CvBridge
 import message_filters
+from nav_msgs.msg import Odometry
 import numpy as np
 import rclpy
+from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2
@@ -42,6 +44,10 @@ class ImageListener:
         self.RT_camera: Optional[np.ndarray] = None
         self.RT_laser: Optional[np.ndarray] = None
         self.RT_base: Optional[np.ndarray] = None
+        self.RT_camera_to_map: Optional[np.ndarray] = None
+
+        # Motion gating: track latest angular velocity
+        self.latest_angular_z: float = 0.0
 
         # Camera intrinsics default (will be updated dynamically by CameraInfo)
         self.fx: float = 574.0527954101562
@@ -53,6 +59,14 @@ class ImageListener:
         # Set up TF
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node)
+
+        # Odometry subscriber for motion gating
+        self.odom_sub = self.node.create_subscription(
+            Odometry,
+            "/odom",
+            self.callback_odom,
+            qos_profile_sensor_data
+        )
 
         # CameraInfo subscriber
         self.info_sub = self.node.create_subscription(
@@ -90,6 +104,10 @@ class ImageListener:
             qos_profile_sensor_data
         )
 
+    def callback_odom(self, msg: Odometry) -> None:
+        with self.lock:
+            self.latest_angular_z = float(abs(msg.twist.twist.angular.z))
+
     def callback_camera_info(self, msg: CameraInfo) -> None:
         if not self.intrinsics_received:
             k = msg.k
@@ -105,10 +123,109 @@ class ImageListener:
                 )
 
     def callback_rgbd(self, rgb: Image, depth: Image) -> None:
-        # 1. Lookup transforms
+        # Motion gating: discard perception frame if robot angular velocity > 0.15 rad/s
+        with self.lock:
+            ang_z = self.latest_angular_z
+        if ang_z > 0.15:
+            self.node.get_logger().debug(
+                f"Motion gating: skipping frame during rotation ({ang_z:.3f} rad/s > 0.15 rad/s)"
+            )
+            return
+
+        # 1. Lookup synchronized transforms to global map frame using exact image timestamp
+        frame_id = rgb.header.frame_id if rgb.header.frame_id else self.camera_frame
+        stamp = rgb.header.stamp
+
+        try:
+            # Map -> Camera optical frame lookup with exact timestamp and 0.2s timeout
+            t_map_cam = self.tf_buffer.lookup_transform(
+                self.map_frame,
+                frame_id,
+                stamp,
+                timeout=Duration(seconds=0.2)
+            )
+            RT_camera_to_map = ros_qt_to_rt(
+                [
+                    t_map_cam.transform.rotation.x,
+                    t_map_cam.transform.rotation.y,
+                    t_map_cam.transform.rotation.z,
+                    t_map_cam.transform.rotation.w,
+                ],
+                [
+                    t_map_cam.transform.translation.x,
+                    t_map_cam.transform.translation.y,
+                    t_map_cam.transform.translation.z,
+                ],
+            )
+        except TransformException as e:
+            # If exact timestamp lookup fails, attempt lookup with latest transform before skipping
+            try:
+                t_map_cam = self.tf_buffer.lookup_transform(
+                    self.map_frame,
+                    frame_id,
+                    rclpy.time.Time(),
+                    timeout=Duration(seconds=0.2)
+                )
+                RT_camera_to_map = ros_qt_to_rt(
+                    [
+                        t_map_cam.transform.rotation.x,
+                        t_map_cam.transform.rotation.y,
+                        t_map_cam.transform.rotation.z,
+                        t_map_cam.transform.rotation.w,
+                    ],
+                    [
+                        t_map_cam.transform.translation.x,
+                        t_map_cam.transform.translation.y,
+                        t_map_cam.transform.translation.z,
+                    ],
+                )
+            except TransformException as e2:
+                self.node.get_logger().debug(f"TF lookup skipped for {frame_id} -> map: {e2}")
+                return
+
+        # Map -> Base frame lookup
+        try:
+            t_base = self.tf_buffer.lookup_transform(
+                self.map_frame,
+                self.base_frame,
+                stamp,
+                timeout=Duration(seconds=0.2)
+            )
+        except TransformException:
+            try:
+                t_base = self.tf_buffer.lookup_transform(
+                    self.map_frame,
+                    self.base_frame,
+                    rclpy.time.Time(),
+                    timeout=Duration(seconds=0.2)
+                )
+            except TransformException:
+                t_base = None
+
+        if t_base is not None:
+            RT_base = ros_qt_to_rt(
+                [
+                    t_base.transform.rotation.x,
+                    t_base.transform.rotation.y,
+                    t_base.transform.rotation.z,
+                    t_base.transform.rotation.w,
+                ],
+                [
+                    t_base.transform.translation.x,
+                    t_base.transform.translation.y,
+                    t_base.transform.translation.z,
+                ],
+            )
+        else:
+            RT_base = RT_camera_to_map.copy()
+
+        # Base -> Camera frame lookup (for backward compatibility)
         try:
             t_cam = self.tf_buffer.lookup_transform(
-                self.base_frame, self.camera_frame, rclpy.time.Time()
+                self.base_frame,
+                frame_id,
+                stamp,
+                timeout=Duration(seconds=0.2)
             )
             RT_camera = ros_qt_to_rt(
                 [
@@ -123,46 +240,31 @@ class ImageListener:
                     t_cam.transform.translation.z,
                 ],
             )
+        except TransformException:
+            RT_camera = np.eye(4)
 
-            try:
-                t_laser = self.tf_buffer.lookup_transform(
-                    self.base_frame, self.laser_frame, rclpy.time.Time()
-                )
-                RT_laser = ros_qt_to_rt(
-                    [
-                        t_laser.transform.rotation.x,
-                        t_laser.transform.rotation.y,
-                        t_laser.transform.rotation.z,
-                        t_laser.transform.rotation.w,
-                    ],
-                    [
-                        t_laser.transform.translation.x,
-                        t_laser.transform.translation.y,
-                        t_laser.transform.translation.z,
-                    ],
-                )
-            except TransformException:
-                RT_laser = None
-
-            t_base = self.tf_buffer.lookup_transform(
-                self.map_frame, self.base_frame, rclpy.time.Time()
+        try:
+            t_laser = self.tf_buffer.lookup_transform(
+                self.base_frame,
+                self.laser_frame,
+                stamp,
+                timeout=Duration(seconds=0.2)
             )
-            RT_base = ros_qt_to_rt(
+            RT_laser = ros_qt_to_rt(
                 [
-                    t_base.transform.rotation.x,
-                    t_base.transform.rotation.y,
-                    t_base.transform.rotation.z,
-                    t_base.transform.rotation.w,
+                    t_laser.transform.rotation.x,
+                    t_laser.transform.rotation.y,
+                    t_laser.transform.rotation.z,
+                    t_laser.transform.rotation.w,
                 ],
                 [
-                    t_base.transform.translation.x,
-                    t_base.transform.translation.y,
-                    t_base.transform.translation.z,
+                    t_laser.transform.translation.x,
+                    t_laser.transform.translation.y,
+                    t_laser.transform.translation.z,
                 ],
             )
-        except TransformException as e:
-            self.node.get_logger().debug(f"TF lookup skipped: {e}")
-            return
+        except TransformException:
+            RT_laser = None
 
         # 2. Decode depth image
         try:
@@ -190,19 +292,19 @@ class ImageListener:
         with self.lock:
             self.im = im.copy()
             self.depth = depth_cv.copy()
-            self.rgb_frame_id = rgb.header.frame_id
-            self.rgb_frame_stamp = rgb.header.stamp
+            self.rgb_frame_id = frame_id
+            self.rgb_frame_stamp = stamp
             self.RT_camera = RT_camera
             self.RT_laser = RT_laser
             self.RT_base = RT_base
+            self.RT_camera_to_map = RT_camera_to_map
 
     def has_data(self) -> bool:
         with self.lock:
             return (
                 self.im is not None
                 and self.depth is not None
-                and self.RT_camera is not None
-                and self.RT_base is not None
+                and self.RT_camera_to_map is not None
             )
 
     def get_data(self) -> Optional[Dict]:
@@ -210,8 +312,7 @@ class ImageListener:
             if not (
                 self.im is not None
                 and self.depth is not None
-                and self.RT_camera is not None
-                and self.RT_base is not None
+                and self.RT_camera_to_map is not None
             ):
                 return None
             return {
@@ -219,9 +320,10 @@ class ImageListener:
                 "depth": self.depth.copy(),
                 "frame_id": self.rgb_frame_id,
                 "stamp": self.rgb_frame_stamp,
-                "RT_camera": self.RT_camera.copy(),
+                "RT_camera": self.RT_camera.copy() if self.RT_camera is not None else np.eye(4),
                 "RT_laser": self.RT_laser.copy() if self.RT_laser is not None else None,
-                "RT_base": self.RT_base.copy(),
+                "RT_base": self.RT_base.copy() if self.RT_base is not None else np.eye(4),
+                "RT_camera_to_map": self.RT_camera_to_map.copy(),
                 "fx": self.fx,
                 "fy": self.fy,
                 "px": self.px,
@@ -233,3 +335,15 @@ class ImageListener:
             if self.RT_camera is None or self.RT_base is None:
                 return None, None
             return self.RT_camera.copy(), self.RT_base.copy()
+
+    def destroy(self) -> None:
+        """Safely destroy subscriptions and publishers."""
+        with self.lock:
+            self.im = None
+            self.depth = None
+        try:
+            self.node.destroy_subscription(self.info_sub)
+            self.node.destroy_subscription(self.odom_sub)
+            self.node.destroy_publisher(self.lidar_pub)
+        except Exception:
+            pass

@@ -18,6 +18,7 @@ struct Frontier
   std::uint32_t size{0};
   double min_distance{0.0};
   double cost{0.0};
+  double width{0.0};
   geometry_msgs::msg::Point initial;
   geometry_msgs::msg::Point centroid;
   geometry_msgs::msg::Point middle;

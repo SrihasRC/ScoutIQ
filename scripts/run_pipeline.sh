@@ -9,7 +9,7 @@ RUN_DIR=""
 FAKE_DETECTOR=false
 MODEL_TYPE="onnx"
 TEXT_PROMPT="table . chair . sofa . bed . cabinet . refrigerator . door ."
-TIMEOUT_EXPLORE=150
+TIMEOUT_EXPLORE=300
 TIMEOUT_NAV=45
 
 usage() {
@@ -23,7 +23,7 @@ usage() {
     echo "  --model TYPE           Perception model: onnx (default), gdino, fake"
     echo "  --prompt TEXT          Semantic prompt for object detection"
     echo "  --fake-detector        Alias for --model fake"
-    echo "  --timeout-explore SEC  Exploration time limit in seconds (default: 240)"
+    echo "  --timeout-explore SEC  Exploration time limit in seconds (default: 300)"
     echo "  --help, -h             Show this message"
     exit 1
 }
@@ -175,16 +175,21 @@ else
     PIDS+=($EXPLORE_LAUNCH_PID)
 
     # Wait for exploration to explore the house (until all frontiers are exhausted or timeout)
-    echo "  Exploration running (timeout: ${TIMEOUT_EXPLORE}s)..."
+    echo "  Exploration running (watching for convergence or watchdog timeout: ${TIMEOUT_EXPLORE}s)..."
     WAIT_COUNT=0
-    sleep 5
-    while [ ! -f "${RUN_DIR}/exploration_done" ] && pgrep -f "scoutiq_explore" >/dev/null && [ $WAIT_COUNT -lt ${TIMEOUT_EXPLORE} ]; do
-        sleep 3
-        WAIT_COUNT=$((WAIT_COUNT+3))
+    sleep 3
+    while [ ! -f "${RUN_DIR}/exploration_done" ] && kill -0 "$EXPLORE_LAUNCH_PID" 2>/dev/null && [ $WAIT_COUNT -lt ${TIMEOUT_EXPLORE} ]; do
+        sleep 2
+        WAIT_COUNT=$((WAIT_COUNT+2))
     done
 
+    if [ -f "${RUN_DIR}/exploration_done" ]; then
+        echo "  Exploration complete: converged and saved map successfully in ${WAIT_COUNT}s."
+    else
+        echo "  Exploration watchdog timeout or process exited (${WAIT_COUNT}s)."
+    fi
+
     # Cleanly finish exploration phase
-    echo "  Exploration phase ended (${WAIT_COUNT}s). Stopping exploration to advance..."
     pkill -f "scoutiq_explore/explore" 2>/dev/null || true
     pkill -f "save_data" 2>/dev/null || true
     sleep 2
@@ -196,11 +201,9 @@ if [ ! -f "${RUN_DIR}/map.yaml" ]; then
     ros2 run scoutiq_nav save_map "${RUN_DIR}" || true
 fi
 
-# Freeze SLAM mapping so the map remains 100% rigid and prevents drift/rotation during patrol
-if [ "$USE_MOCK" = false ]; then
-    echo "  Freezing SLAM mapping (locking map to prevent drift)..."
-    ros2 service call /slam_toolbox/pause_new_measurements slam_toolbox/srv/Pause "{}" 2>/dev/null || true
-fi
+# Note: Do NOT pause SLAM Toolbox new measurements, as pausing severs the map -> odom TF broadcast,
+# breaking Nav2 global localization and causing RViz2 to rotate the world around the robot.
+# SLAM Toolbox remains running with active TF broadcast for localization.
 
 # 3. Stage 2: Trajectory Post-processing
 echo "[3/4] Stage 2: Processing Trajectory (Extract -> TSP)..."

@@ -224,15 +224,8 @@ void Explore::visualizeFrontiers(const std::vector<Frontier> & frontiers)
 
 bool Explore::goalOnBlacklist(const geometry_msgs::msg::Point & goal)
 {
-  constexpr static size_t tolerance = 5;
-  auto * costmap = costmap_client_->getCostmap();
-  double res = costmap ? costmap->getResolution() : 0.05;
-
   for (const auto & frontier_goal : frontier_blacklist_) {
-    double x_diff = std::abs(goal.x - frontier_goal.x);
-    double y_diff = std::abs(goal.y - frontier_goal.y);
-
-    if (x_diff < tolerance * res && y_diff < tolerance * res) {
+    if (std::hypot(goal.x - frontier_goal.x, goal.y - frontier_goal.y) < 0.40) {
       return true;
     }
   }
@@ -305,7 +298,7 @@ void Explore::makePlan()
     if ((now() - last_progress_).seconds() > progress_timeout_) {
       RCLCPP_WARN(
         get_logger(),
-        "Progress timeout (%.1f s) exceeded for goal (%.2f, %.2f). Adding to blacklist.",
+        "Progress timeout (%.1f s) exceeded for goal (%.2f, %.2f). Adding to permanent blacklist.",
         progress_timeout_, prev_goal_.x, prev_goal_.y);
       frontier_blacklist_.push_back(prev_goal_);
       nav_client_->async_cancel_goal(current_goal_handle_);
@@ -323,11 +316,19 @@ void Explore::makePlan()
   auto all_frontiers = search_.searchFrom(pose.position);
 
   // Filter out frontiers too close to the robot (< min_candidate_distance_)
-  // or positioned inside high costmap inflation (tight crevices / narrow gaps behind furniture)
+  // or continuous width smaller than 0.45 m (smaller than robot clearance)
+  // or costmap cell cost >= 253 (INSCRIBED_INFLATED_OBSTACLE, LETHAL, or UNKNOWN)
+  // or already permanently blacklisted
   auto * costmap = costmap_client_->getCostmap();
   std::vector<Frontier> frontiers;
   for (const auto & f : all_frontiers) {
     if (euclideanDistance(pose.position, f.middle) < min_candidate_distance_) {
+      continue;
+    }
+    if (f.width < 0.45 || (f.size * (costmap ? costmap->getResolution() : 0.05)) < 0.45) {
+      continue;
+    }
+    if (goalOnBlacklist(f.middle)) {
       continue;
     }
     if (costmap != nullptr) {
@@ -335,25 +336,27 @@ void Explore::makePlan()
       unsigned int my = 0;
       if (costmap->worldToMap(f.middle.x, f.middle.y, mx, my)) {
         unsigned char c = costmap->getCost(mx, my);
-        // Skip frontiers with cost >= 180 (close to obstacle, < ~0.35m clearance) to prevent wedging
-        if (c >= 180 && c != nav2_costmap_2d::NO_INFORMATION) {
+        // Cost >= 253 (INSCRIBED_INFLATED_OBSTACLE or LETHAL_OBSTACLE or NO_INFORMATION)
+        if (c >= nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE) {
           continue;
         }
+      } else {
+        continue;
       }
     }
     frontiers.push_back(f);
   }
 
-  // Exploration termination condition:
-  // Terminate ONLY if no frontiers remain AND sufficient time has elapsed (> 45s)
-  // AND consecutive cycles confirm zero frontiers across the map.
-  if (frontiers.size() < min_global_frontiers_) {
+  // Active exploration convergence:
+  // When valid_frontiers == 0 (all real frontiers explored, tiny gaps permanently blacklisted),
+  // log Exploration complete, save map, and cleanly shut down explore node with exit code 0.
+  if (frontiers.empty()) {
     consecutive_empty_frontiers_++;
-    if (consecutive_empty_frontiers_ >= 15 && (now() - start_time_).seconds() > 45.0) {
+    if (consecutive_empty_frontiers_ >= 3 && (now() - start_time_).seconds() > 10.0) {
       RCLCPP_INFO(
         get_logger(),
-        "Exploration complete: remaining frontiers (%zu) < min_global_frontiers (%.1f) over %d cycles. Stopping.",
-        frontiers.size(), min_global_frontiers_, consecutive_empty_frontiers_);
+        "Exploration complete: all frontiers explored or blacklisted (%d cycles). Saving map and cleanly exiting.",
+        consecutive_empty_frontiers_);
 
       std_msgs::msg::Bool term_msg;
       term_msg.data = true;
@@ -361,14 +364,15 @@ void Explore::makePlan()
       contract_termination_publisher_->publish(term_msg);
 
       stop();
-
       if (save_map_) {
         saveMap();
       }
+      rclcpp::shutdown();
+      return;
     } else {
       RCLCPP_INFO_THROTTLE(
         get_logger(), *get_clock(), 2000,
-        "Low or no frontiers detected (%zu); waiting for map updates (cycle %d/10)...",
+        "No valid frontiers detected (%zu); verifying exploration convergence (cycle %d/3)...",
         frontiers.size(), consecutive_empty_frontiers_);
     }
     return;
@@ -386,24 +390,11 @@ void Explore::makePlan()
       filtered_frontiers.push_back(f);
     }
   }
-  RCLCPP_DEBUG(
-    get_logger(), "Filtered frontiers within local radius (%.2f m): %zu",
-    radius_, filtered_frontiers.size());
 
   // 2. Window expansion: if local frontiers <= min_local_frontiers, expand to global
   if (filtered_frontiers.size() <= min_local_frontiers_) {
     radius_ = global_frontier_filter_radius_;
     filtered_frontiers = frontiers;  // Expand to whole map
-    RCLCPP_INFO(
-      get_logger(),
-      "****Not enough frontiers within local filter radius (<= %.1f) || "
-      "Expanding search to whole map (%.2f m)****",
-      min_local_frontiers_, radius_);
-  } else {
-    RCLCPP_INFO(
-      get_logger(),
-      "****Picking a frontier within the filter radius (%.2f m, count: %zu)****",
-      radius_, filtered_frontiers.size());
   }
 
   if (visualize_) {
@@ -423,23 +414,8 @@ void Explore::makePlan()
   }
 
   if (frontier_it == filtered_frontiers.end() || frontier_it == frontiers.end()) {
-    blacklisted_cycles_++;
-    if (blacklisted_cycles_ >= 5) {
-      RCLCPP_WARN(
-        get_logger(),
-        "All available frontiers (%zu) have remained blacklisted for %d cycles. Clearing blacklist to retry.",
-        frontiers.size(), blacklisted_cycles_);
-      frontier_blacklist_.clear();
-      blacklisted_cycles_ = 0;
-    } else {
-      RCLCPP_INFO_THROTTLE(
-        get_logger(), *get_clock(), 2000,
-        "All current frontiers (%zu) are temporarily blacklisted; waiting for map update (cycle %d/5)...",
-        frontiers.size(), blacklisted_cycles_);
-    }
     return;
   }
-  blacklisted_cycles_ = 0;
 
   geometry_msgs::msg::Point target_position = frontier_it->middle;
 
@@ -508,7 +484,7 @@ void Explore::reachedGoal(
   if (result.code == rclcpp_action::ResultCode::ABORTED) {
     RCLCPP_WARN(
       get_logger(),
-      "NavigateToPose goal (%.2f, %.2f) was ABORTED; adding to blacklist.",
+      "NavigateToPose goal (%.2f, %.2f) was ABORTED; adding to permanent blacklist.",
       frontier_goal.x, frontier_goal.y);
     frontier_blacklist_.push_back(frontier_goal);
   } else if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
