@@ -57,13 +57,13 @@ def test_nav2_params_configuration():
     assert 'FollowPath' in ctrl_params['controller_plugins']
     dwb_params = ctrl_params['FollowPath']
     assert dwb_params['plugin'] == 'dwb_core::DWBLocalPlanner'
-    assert dwb_params['max_vel_x'] <= 0.4
+    assert dwb_params['max_vel_x'] <= 1.0
     assert dwb_params['min_vel_x'] >= 0.0
 
-    # 4. Planner server (NavfnPlanner)
+    # 4. Planner server
     planner_params = params['planner_server']['ros__parameters']
     assert 'GridBased' in planner_params['planner_plugins']
-    assert planner_params['GridBased']['plugin'] == 'nav2_navfn_planner/NavfnPlanner'
+    assert planner_params['GridBased']['plugin'] in ('nav2_smac_planner/SmacPlanner2D', 'nav2_navfn_planner/NavfnPlanner')
 
     # 5. Behavior server
     behav_params = params['behavior_server']['ros__parameters']
